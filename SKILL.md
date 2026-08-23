@@ -18,8 +18,8 @@ wiki config            # 检查 wikiRoot / knowledgeDirs / blogRepo 是否符合
 wiki config set blogRepo <Hugo 仓库绝对路径>
 #    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
 wiki config set hugoBin <hugo 可执行文件路径>
-# 4. Stop hook 自动同步（~/.zcode/cli/config.json 的 hooks.events.Stop，
-#    process 类型直调 wiki.exe check，stdout 恒空契约——详见工具仓库 README 教程）
+# 4. Stop hook 自动同步（~/.qwen/settings.json 的 hooks.Stop 或 ~/.zcode/cli/config.json 的 hooks.events.Stop，
+#    command/process 类型直调 wiki.exe check，stdout 恒空契约——详见工具仓库 README 教程）
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
 wiki inject             # 标记锚定：追加/原位替换/幂等
 # 6. 健康自检：
