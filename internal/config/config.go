@@ -59,6 +59,8 @@ type wikiConfig struct {
 	BlogRepo      string   `json:"blogRepo,omitempty"`
 	BlogPosts     string   `json:"blogPosts,omitempty"`
 	KnowledgeDirs []string `json:"knowledgeDirs,omitempty"`
+	HugoBin       string   `json:"hugoBin,omitempty"`  // hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
+	HugoSite      string   `json:"hugoSite,omitempty"` // Hugo 站点目录（相对 blogRepo，缺省 pandawo）
 }
 
 func ConfigPath(root string) string { return filepath.Join(root, "config.json") }
@@ -120,6 +122,32 @@ func RequireBlogRepo() (string, error) {
 	return repo, nil
 }
 
+// HugoBin 返回 hugo 可执行文件（blog new 按主题 archetype 生成模板用）。
+func HugoBin() string {
+	if v := os.Getenv("WIKI_HUGO_BIN"); v != "" {
+		return v
+	}
+	if cfg := LoadWikiConfig(WikiRoot()); cfg.HugoBin != "" {
+		return cfg.HugoBin
+	}
+	return "hugo"
+}
+
+// HugoSiteDir 返回 Hugo 站点目录（hugo new 的执行目录）。
+func HugoSiteDir() string {
+	if v := os.Getenv("WIKI_HUGO_SITE"); v != "" {
+		return v
+	}
+	site := "pandawo"
+	if cfg := LoadWikiConfig(WikiRoot()); cfg.HugoSite != "" {
+		site = cfg.HugoSite
+	}
+	if filepath.IsAbs(site) {
+		return site
+	}
+	return filepath.Join(BlogRepo(), site)
+}
+
 // CmdConfig 无参打印生效配置；`set <key> <value>` 写入 config.json。
 func CmdConfig(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
@@ -129,12 +157,12 @@ func CmdConfig(args []string) error {
 	root := WikiRoot()
 	switch fs.NArg() {
 	case 0:
-		fmt.Printf("wikiRoot:       %s\nknowledgeDirs:  %s\nblogRepo:       %s\nblogPosts:      %s\n",
-			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir())
+		fmt.Printf("wikiRoot:       %s\nknowledgeDirs:  %s\nblogRepo:       %s\nblogPosts:      %s\nhugoBin:        %s\nhugoSite:       %s\n",
+			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir())
 		return nil
 	case 3:
 		if fs.Arg(0) != "set" {
-			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs> <值>")
+			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite> <值>")
 		}
 		key, val := fs.Arg(1), fs.Arg(2)
 		cfg := LoadWikiConfig(root)
@@ -149,6 +177,12 @@ func CmdConfig(args []string) error {
 			} else {
 				cfg.BlogPosts = abs
 			}
+		case "hugoBin", "hugoSite":
+			if key == "hugoBin" {
+				cfg.HugoBin = val
+			} else {
+				cfg.HugoSite = val
+			}
 		case "knowledgeDirs":
 			dirs := cli.SplitCSV(val)
 			if len(dirs) == 0 {
@@ -156,7 +190,7 @@ func CmdConfig(args []string) error {
 			}
 			cfg.KnowledgeDirs = dirs
 		default:
-			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs）", key)
+			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite）", key)
 		}
 		if err := cfg.save(root); err != nil {
 			return err
@@ -164,6 +198,6 @@ func CmdConfig(args []string) error {
 		fmt.Printf("已设置 %s（写入 %s）\n", key, ConfigPath(root))
 		return nil
 	default:
-		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs> <值>")
+		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite> <值>")
 	}
 }

@@ -16,6 +16,8 @@ cd <my-wiki 工具仓库> && go build -o wiki.exe .
 wiki config            # 检查 wikiRoot / knowledgeDirs / blogRepo 是否符合预期
 # 3. 用博客功能才需要：
 wiki config set blogRepo <Hugo 仓库绝对路径>
+#    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
+wiki config set hugoBin <hugo 可执行文件路径>
 # 4. Stop hook 自动同步（~/.zcode/cli/config.json 的 hooks.events.Stop，
 #    process 类型直调 wiki.exe check，stdout 恒空契约——详见工具仓库 README 教程）
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
@@ -55,11 +57,11 @@ wiki blog list                          # 只列 categories/tags（按使用次�
 wiki blog new \
   --title "标题" --slug english-kebab-case \
   --categories "技术笔记,AI" --tags "tag1,tag2" \
-  --name file_name --file body.md        # 正文也可 --body "..." 或 --stdin；先 --dry-run 预览
+  --name file_name --file body.md        # --name 必填（hugo new 目标文件）；正文也可 --body "..." 或 --stdin；先 --dry-run 预览
 wiki blog publish file_name              # 提交推送，GitHub Actions 自动部署
 ```
 
-- 正文文风遵循 `tech-blog` skill；front matter 确定性字段全自动生成；slug/文件名冲突在此步报错
+- 正文文风遵循 `tech-blog` skill；`hugo new` 按主题 archetype 生成模板（需 hugo），CLI 只填 title/slug/categories/tags 四字段并拼正文；slug/文件名冲突在此步报错（先于 hugo new）
 - **push 网络失败不重试**：如实告知用户「文件已本地提交，请在博客仓库手动 git push」
 - 发布成功后四字段记录自动入 `blog.json`（懒维护）
 - 禁止绕过 CLI 直接往博客仓库手写文章文件

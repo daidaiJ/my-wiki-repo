@@ -46,6 +46,46 @@ func TestConfigPrecedence(t *testing.T) {
 	}
 }
 
+func TestHugoConfig(t *testing.T) {
+	wiki := t.TempDir()
+	t.Setenv("WIKI_ROOT", wiki)
+	t.Setenv("WIKI_HUGO_BIN", "")
+	t.Setenv("WIKI_HUGO_SITE", "")
+
+	// 默认：PATH 上的 hugo，站点相对 blogRepo 的 pandawo
+	if got := HugoBin(); got != "hugo" {
+		t.Errorf("默认 hugoBin = %q", got)
+	}
+	// config.json
+	cfg := &wikiConfig{BlogRepo: `X:\blog`, HugoBin: `C:\hugo\hugo.exe`, HugoSite: "mysite"}
+	if err := cfg.save(wiki); err != nil {
+		t.Fatal(err)
+	}
+	if got := HugoBin(); got != `C:\hugo\hugo.exe` {
+		t.Errorf("config hugoBin = %q", got)
+	}
+	if got := HugoSiteDir(); got != filepath.Join(`X:\blog`, "mysite") {
+		t.Errorf("config hugoSite = %q", got)
+	}
+	// 绝对路径站点不拼接
+	cfg.HugoSite = `Z:\site`
+	if err := cfg.save(wiki); err != nil {
+		t.Fatal(err)
+	}
+	if got := HugoSiteDir(); got != `Z:\site` {
+		t.Errorf("绝对 hugoSite = %q", got)
+	}
+	// env 覆盖 config
+	t.Setenv("WIKI_HUGO_BIN", "hugo-test")
+	t.Setenv("WIKI_HUGO_SITE", `Y:\site`)
+	if got := HugoBin(); got != "hugo-test" {
+		t.Errorf("env hugoBin = %q", got)
+	}
+	if got := HugoSiteDir(); got != `Y:\site` {
+		t.Errorf("env hugoSite = %q", got)
+	}
+}
+
 func TestResolveWikiRootByMarker(t *testing.T) {
 	// 含 index.md 标记的目录被认定为 wiki 根
 	marked := t.TempDir()

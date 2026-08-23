@@ -27,7 +27,7 @@ my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里�
 |---|---|---|
 | Go ≥ 1.25 | 仅自行构建时 | 唯一第三方库是 `gopkg.in/yaml.v3`，产出单二进制；也可以直接从 [Releases](../../releases) 下载对应平台的二进制（免 Go） |
 | git | 仅 `blog publish` | 本地 commit + push |
-| Hugo | **不需要** | 文章文件直写，部署交给博客仓库自己的 CI |
+| Hugo | 仅 `blog new` | 按主题 archetype 生成 front matter 模板；不在 PATH 时用 `wiki config set hugoBin` 指定 |
 | 符号链接权限 | 无要求 | Linux/macOS 原生支持；Windows 无需管理员权限（自动降级为 junction） |
 
 运行平台：Windows / Linux / macOS。
@@ -139,7 +139,7 @@ wiki blog list                      # 已有 categories/tags 及使用频次—�
 wiki blog new \
   --title "标题" --slug english-kebab \
   --categories "技术笔记" --tags "go,k8s" \
-  --name my_post --file body.md     # front matter 全部自动生成；--dry-run 可预览
+  --name my_post --file body.md     # hugo new 按主题 archetype 生成模板，CLI 填四字段+拼正文；--dry-run 预览后自动删除恢复
 wiki blog publish my_post           # git add+commit+push，博客仓库的 CI 负责构建部署
 ```
 
@@ -157,6 +157,8 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 |---|---|---|---|
 | `blogRepo` | `WIKI_BLOG_REPO` | 无 | Hugo 博客仓库根，用博客功能必配 |
 | `blogPosts` | `WIKI_BLOG_POSTS` | `<blogRepo>/pandawo/content/post` | 文章目录 |
+| `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 按主题 archetype 生成模板用） |
+| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录（`hugo new` 执行目录） |
 | `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名，`wiki init` 自动发现依据 |
 | — | `WIKI_ROOT` | 见解析顺序 | wiki 数据根目录 |
 

@@ -1,5 +1,7 @@
 projects/
 *.exe
-wiki
+/wiki
 config.json
 .zcode/
+.qwen/
+graphify-out/

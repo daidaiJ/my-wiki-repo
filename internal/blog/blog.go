@@ -178,17 +178,31 @@ var (
 	nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 )
 
+// runHugoNew 调用 `hugo new <rel>` 让主题 archetype 生成完整 front matter 模板。
+// 抽成包级变量是测试缝：单测/E2E 用 mock 替换，不依赖真实 hugo。
+var runHugoNew = func(hugoBin, siteDir, rel string) error {
+	cmd := exec.Command(hugoBin, "new", rel)
+	cmd.Dir = siteDir
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("hugo new 失败（%s，站点 %s）:\n%s%v\n若 hugo 不在 PATH，执行 wiki config set hugoBin <hugo 路径>", hugoBin, siteDir, buf.String(), err)
+	}
+	return nil
+}
+
 func cmdBlogNew(args []string) error {
 	fs := flag.NewFlagSet("blog new", flag.ContinueOnError)
 	title := fs.String("title", "", "文章标题（必填）")
 	slug := fs.String("slug", "", "URL slug，kebab-case（必填）")
 	categories := fs.String("categories", "", "分类，逗号分隔（必填，优先复用已有分类，先 wiki blog list）")
 	tags := fs.String("tags", "", "标签，逗号分隔")
-	name := fs.String("name", "", "文件名（缺省取 slug 的 - 转 _）")
+	name := fs.String("name", "", "文件名（必填，hugo new 的目标文件，如 my_post）")
 	file := fs.String("file", "", "正文来源：文件路径")
 	body := fs.String("body", "", "正文来源：字符串")
 	stdin := fs.Bool("stdin", false, "正文来源：标准输入")
-	dryRun := fs.Bool("dry-run", false, "只打印将写入的路径和全文，不落盘")
+	dryRun := fs.Bool("dry-run", false, "真实生成后打印全文预览，再删除文件恢复原状")
 	publish := fs.Bool("publish", false, "写完直接提交推送")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -201,15 +215,14 @@ func cmdBlogNew(args []string) error {
 		return errors.New("--slug 必填")
 	case strings.TrimSpace(*categories) == "":
 		return errors.New("--categories 必填")
+	case strings.TrimSpace(*name) == "":
+		return errors.New("--name 必填（hugo new 的目标文件名）")
 	}
 	normSlug := strings.ToLower(strings.TrimSpace(*slug))
 	if !slugRe.MatchString(normSlug) {
 		return fmt.Errorf("--slug %q 不是合法的 kebab-case（小写字母数字，中划线分隔）", *slug)
 	}
 	fileName := strings.TrimSpace(*name)
-	if fileName == "" {
-		fileName = strings.ReplaceAll(normSlug, "-", "_")
-	}
 	if !nameRe.MatchString(fileName) {
 		return fmt.Errorf("--name %q 含非法字符（允许字母数字 _ -）", fileName)
 	}
@@ -251,6 +264,7 @@ func cmdBlogNew(args []string) error {
 	}
 
 	postDir := config.BlogPostsDir()
+	// apply 时查重（slug 罕见重复 + 文件名存在性），先于 hugo new
 	posts, err := collectPosts(postDir)
 	if err != nil {
 		return err
@@ -264,18 +278,34 @@ func cmdBlogNew(args []string) error {
 		}
 	}
 
-	meta := NewPostMeta{Title: strings.TrimSpace(*title), Slug: normSlug, Categories: cats, Tags: tagList, Now: nowFn()}
-	full := generateFrontMatter(meta) + "\n" + bodyText
+	// 1) hugo new 按主题 archetype 生成完整模板（musicid/image 等主题字段归主题管）
+	rel := "content/post/" + fileName + ".md"
+	if err := runHugoNew(config.HugoBin(), config.HugoSiteDir(), rel); err != nil {
+		return err
+	}
 	target := filepath.Join(postDir, fileName+".md")
+	archetype, err := os.ReadFile(target)
+	if err != nil {
+		return fmt.Errorf("hugo new 未生成预期文件 %s: %w", target, err)
+	}
+
+	// 2) 在模板上填四个字段，3) 追加正文
+	meta := NewPostMeta{Title: strings.TrimSpace(*title), Slug: normSlug, Categories: cats, Tags: tagList}
+	full := fillFrontMatter(string(archetype), meta)
+	if idx := closingFenceIndex(strings.Split(full, "\n")); idx >= 0 {
+		full = strings.TrimRight(full, "\n") + "\n" + bodyText
+	} else {
+		full = full + "\n" + bodyText // 无 front matter 的极端 archetype：直接拼
+	}
 
 	if *dryRun {
-		fmt.Printf("[dry-run] 将写入: %s\n\n%s", target, full)
-		return nil
+		fmt.Printf("[dry-run] 将写入: %s（已生成预览，随后删除恢复）\n\n%s", target, full)
+		return os.Remove(target)
 	}
 	if err := os.WriteFile(target, []byte(full), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("已创建 %s\n", target)
+	fmt.Printf("已创建 %s（模板来自主题 archetype，四字段已填充）\n", target)
 	if *publish {
 		return blogPublish(fileName)
 	}
