@@ -35,8 +35,8 @@ my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里�
 ## 快速开始
 
 ```bash
-git clone https://github.com/<you>/my-wiki.git
-cd my-wiki && go build -o wiki .
+git clone https://github.com/daidaiJ/my-wiki-repo.git
+cd my-wiki-repo && go build -o wiki .
 
 # 接入一个项目（自动发现项目下的 wiki/ 和 issues/ 目录）
 ./wiki init /path/to/some-project --intro "一句话介绍"
