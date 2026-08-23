@@ -48,7 +48,7 @@ docs/                设计、工作流、Obsidian 接入文档（人读）
 
 ## 文档
 
-- [设计文档](docs/design.md) — hook 驱动设计、数据面/控制流分离、注册表与链接实现
+- [设计文档](docs/design.md) — hook 驱动设计、数据面/控制流分离、Obsidian 校对 + Hugo 发布两个出口
 - [知识工作流](docs/workflow.md) — agent 总结 → Obsidian 校对 → Hugo 发布 三段流水线
 - [Obsidian 仓库接入](docs/obsidian.md) — 先建仓库 / 迁移两条路线 SOP
 
