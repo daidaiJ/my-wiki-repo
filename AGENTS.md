@@ -68,8 +68,7 @@ wiki cat <项目/.../文件>
 - 禁止直接往博客仓库手写文章文件（绕过查重与格式统一）
 - 禁止手改 `index.md` / `blog.json`（工具生成的数据文件，用命令维护）
 
-## 六、Stop hook 机制说明
+## 六、Stop hook 与跨工具规约注入
 
-用户级配置 `~/.zcode/cli/config.json` 的 `hooks.events.Stop` 注册了 `wiki check`（process 类型直调 wiki.exe）。
-stdout 恒空（hook 对 stdout 做严格 JSON 校验），日志全走 stderr，任何失败都不阻塞会话。
-没有声明块的项目完全无感；这也是元数据「事后补充」能自动生效的原因。
+- **Stop hook**：用户级 `~/.zcode/cli/config.json` 的 `hooks.events.Stop` 注册了 `wiki check`（process 类型直调 wiki.exe）。stdout 恒空（hook 对 stdout 做严格 JSON 校验），日志全走 stderr，任何失败都不阻塞会话。没有声明块的项目完全无感；这也是元数据「事后补充」能自动生效的原因。
+- **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把 wiki 引导段注入其他 agent 工具的用户级指令文件（默认 `~/.qwen/QWEN.md`）。`wiki-guide` 特殊标记锚定：无标记段则末尾追加、有则原位替换（跨版本安全）、一致则跳过；升级规约内容后改 `guide.go` 重新构建并跑一次 `wiki inject` 即可全量更新。

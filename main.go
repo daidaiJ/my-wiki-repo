@@ -71,6 +71,11 @@ const usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (v` + version
   wiki config set blogRepo <路径>      Hugo 仓库根（默认 D:\note\daidaiJ.github.io）
   wiki config set blogPosts <路径>     文章目录（默认 <blogRepo>\pandawo\content\post）
 
+跨工具规约注入:
+  wiki inject [--file <指令文件>] [--remove]
+                              把 wiki 引导段注入用户级指令文件（默认 ~/.qwen/QWEN.md）；
+                              标记锚定：无则追加、有则原位替换、一致则跳过
+
 环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_BLOG_REPO / WIKI_BLOG_POSTS
 `
 
@@ -103,6 +108,8 @@ func main() {
 		err = cmdCat(os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
+	case "inject":
+		err = cmdInject(os.Args[2:])
 	case "blog":
 		err = cmdBlog(os.Args[2:])
 	case "version", "--version", "-v":
