@@ -1,4 +1,4 @@
-package main
+package blog
 
 import (
 	"crypto/md5"
@@ -24,8 +24,9 @@ type NewPostMeta struct {
 	Now        time.Time
 }
 
-// generateFrontMatter 按博客既有文章的模板逐字段生成 front matter：
-// musicid 固定、image 用 slug 哈希派生 picsum seed，date/lastmod 取当前时间。
+// generateFrontMatter 按目标 Hugo archetype（hugo-theme-stack 约定）逐字段生成
+// front matter：musicid 固定、image 用 slug 哈希派生 picsum seed，date/lastmod 取当前时间。
+// 换用其他 archetype 时改这里即可。
 func generateFrontMatter(m NewPostMeta) string {
 	ts := m.Now.Format("2006-01-02T15:04:05-07:00")
 	seed := fmt.Sprintf("%x", md5.Sum([]byte(m.Slug)))[4:12]

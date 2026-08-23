@@ -1,4 +1,6 @@
-package main
+// Package guide 把 wiki 规约引导段注入其他 agent 工具的用户级指令文件
+// （默认 qwen code 的 ~/.qwen/QWEN.md），标记锚定、跨版本原位替换。
+package guide
 
 import (
 	"errors"
@@ -8,14 +10,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-)
 
-// 向其他 agent 工具的用户级指令文件（默认 qwen code 的 ~/.qwen/QWEN.md）
-// 注入 wiki 规约引导段。流程：先按特殊标记检测 →
-//   - 无标记段 → 末尾追加（与既有内容空行分隔；文件不存在则创建）
-//   - 有标记段 → 原位替换（标记锚定，跨版本安全）
-//   - 内容一致 → 不写盘（幂等）
-// --remove 可整段摘除。
+	"github.com/daidaiJ/my-wiki-repo/internal/cli"
+)
 
 const (
 	guideStartMarker = "<!-- wiki-guide:start -->"
@@ -29,7 +26,7 @@ func guideSection() string {
 	var b strings.Builder
 	b.WriteString(guideStartMarker + "\n")
 	b.WriteString("## wiki 知识库与博客发布（wiki CLI）\n\n")
-	b.WriteString("跨项目知识库与 Hugo 博客发布工具，二进制 `wiki`，完整规约见 wiki 根目录的 `AGENTS.md`（即 wiki.exe 所在目录，`wiki config` 可查 wikiRoot）。\n\n")
+	b.WriteString("跨项目知识库与 Hugo 博客发布工具，二进制 `wiki`，完整规约见 wiki 根目录的 `AGENTS.md`（即 wiki 可执行文件所在目录，`wiki config` 可查 wikiRoot）。\n\n")
 	b.WriteString("- 接入项目 / 补充项目介绍与摘要（任意时间）：`wiki init <项目路径>`（省略 --paths 自动发现 wiki/issues 目录）；事后补充 `wiki init <项目路径> --intro \"…\" --summary \"…\"`。声明只存 wiki 本地注册表，项目仓库零足迹、不随项目 push 外泄；勿接入 `docs/` 等官方文档同名目录\n")
 	b.WriteString("- 全局检索（路径规格：项目/链接/文件）：`wiki ls` / `wiki grep <模式>`（输出可直接喂给 `wiki cat <项目/链接/文件>`）/ `wiki tree <项目>`\n")
 	b.WriteString("- 发博客：先 `wiki blog list`（只列 categories/tags，优先复用已有类别）→ `wiki blog new …` → `wiki blog publish <name>`；push 网络失败不重试，转告用户手动 push\n")
@@ -90,11 +87,12 @@ func defaultGuideTarget() (string, error) {
 	return filepath.Join(home, ".qwen", "QWEN.md"), nil
 }
 
-func cmdInject(args []string) error {
+// CmdInject 把规约引导段注入用户级指令文件（--remove 摘除）。
+func CmdInject(args []string) error {
 	fs := flag.NewFlagSet("inject", flag.ContinueOnError)
 	file := fs.String("file", "", "目标指令文件（缺省 ~/.qwen/QWEN.md）")
 	remove := fs.Bool("remove", false, "摘除引导段而非注入")
-	if err := parseWithPositionals(fs, args); err != nil {
+	if err := cli.ParseWithPositionals(fs, args); err != nil {
 		return err
 	}
 	target := *file
@@ -115,21 +113,15 @@ func cmdInject(args []string) error {
 	if err != nil {
 		return err
 	}
-	switch action {
-	case "unchanged":
-		fmt.Printf("已是最新，无需写入: %s\n", target)
-	case "created":
-		fmt.Printf("已创建并注入引导段: %s\n", target)
-	case "appended":
-		fmt.Printf("已追加引导段: %s\n", target)
-	case "replaced":
-		fmt.Printf("已原位替换旧版引导段: %s\n", target)
-	case "removed":
-		fmt.Printf("已摘除引导段: %s\n", target)
-	case "absent":
-		fmt.Printf("目标文件中没有引导段: %s\n", target)
-	case "missing":
-		fmt.Printf("目标文件不存在，跳过: %s\n", target)
+	messages := map[string]string{
+		"unchanged": "已是最新，无需写入",
+		"created":   "已创建并注入引导段",
+		"appended":  "已追加引导段",
+		"replaced":  "已原位替换旧版引导段",
+		"removed":   "已摘除引导段",
+		"absent":    "目标文件中没有引导段",
+		"missing":   "目标文件不存在，跳过",
 	}
+	fmt.Printf("%s: %s\n", messages[action], target)
 	return nil
 }

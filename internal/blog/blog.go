@@ -1,4 +1,6 @@
-package main
+// Package blog 实现 Hugo 博客发布流水线：front matter 解析与生成、文章创建
+// （apply 时查重）、提交推送（push 失败不重试）与懒维护的发布记录。
+package blog
 
 import (
 	"bytes"
@@ -15,43 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/daidaiJ/my-wiki-repo/internal/cli"
+	"github.com/daidaiJ/my-wiki-repo/internal/config"
 	"gopkg.in/yaml.v3"
 )
-
-// postsRelDir 是文章目录相对仓库根的默认位置（Hugo 站点在 pandawo 子目录）。
-const postsRelDir = `pandawo\content\post`
-
-// blogRepo 博客 git 仓库根：开源工具无内置默认值，须通过 config.json 或环境变量配置。
-func blogRepo() string {
-	if v := os.Getenv("WIKI_BLOG_REPO"); v != "" {
-		return v
-	}
-	if cfg := loadWikiConfig(wikiRoot()); cfg.BlogRepo != "" {
-		return cfg.BlogRepo
-	}
-	return ""
-}
-
-// requireBlogRepo 供博客命令统一校验并给出配置指引。
-func requireBlogRepo() (string, error) {
-	repo := blogRepo()
-	if repo == "" {
-		return "", errors.New("未配置博客仓库：执行 wiki config set blogRepo <你的 Hugo 仓库绝对路径>（或设 WIKI_BLOG_REPO 环境变量）")
-	}
-	return repo, nil
-}
-
-func blogPostsDir() string {
-	if v := os.Getenv("WIKI_BLOG_POSTS"); v != "" {
-		return v
-	}
-	if cfg := loadWikiConfig(wikiRoot()); cfg.BlogPosts != "" {
-		return cfg.BlogPosts
-	}
-	return filepath.Join(blogRepo(), postsRelDir)
-}
-
-// --- front matter 解析 ---
 
 // parseFrontMatter 提取 `---` 围栏内的 YAML 段并解析关心的字段。
 // 容忍既有文章的写法差异：`tags :`（冒号前有空格）、`categories: ["a"]` 流式列表。
@@ -148,11 +117,12 @@ func collectPosts(postDir string) ([]PostInfo, error) {
 
 // --- 子命令 ---
 
-func cmdBlog(args []string) error {
+// CmdBlog 博客命令入口。
+func CmdBlog(args []string) error {
 	if len(args) == 0 {
 		return errors.New("用法: wiki blog <list|new|publish>")
 	}
-	if _, err := requireBlogRepo(); err != nil {
+	if _, err := config.RequireBlogRepo(); err != nil {
 		return err
 	}
 	switch args[0] {
@@ -175,7 +145,7 @@ func cmdBlogList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	rec, err := reconcileRecord(wikiRoot(), blogPostsDir())
+	rec, err := reconcileRecord(config.WikiRoot(), config.BlogPostsDir())
 	if err != nil {
 		return err
 	}
@@ -191,7 +161,7 @@ func cmdBlogList(args []string) error {
 			"tags":       tags,
 		})
 	}
-	fmt.Printf("已发布文章: %d 篇（记录 %s）\n\n", len(rec.Posts), recordPath(wikiRoot()))
+	fmt.Printf("已发布文章: %d 篇（记录 %s）\n\n", len(rec.Posts), recordPath(config.WikiRoot()))
 	fmt.Println("categories（按使用次数降序，创建文章时优先复用已有类别）:")
 	for _, c := range sortedByCount(cats) {
 		fmt.Printf("  %-16s %d\n", c, cats[c])
@@ -243,11 +213,11 @@ func cmdBlogNew(args []string) error {
 	if !nameRe.MatchString(fileName) {
 		return fmt.Errorf("--name %q 含非法字符（允许字母数字 _ -）", fileName)
 	}
-	cats := splitCSV(*categories)
+	cats := cli.SplitCSV(*categories)
 	if len(cats) == 0 {
 		return errors.New("--categories 解析后为空")
 	}
-	tagList := splitCSV(*tags)
+	tagList := cli.SplitCSV(*tags)
 
 	sources := 0
 	for _, ok := range []bool{*file != "", *body != "", *stdin} {
@@ -280,7 +250,7 @@ func cmdBlogNew(args []string) error {
 		bodyText += "\n"
 	}
 
-	postDir := blogPostsDir()
+	postDir := config.BlogPostsDir()
 	posts, err := collectPosts(postDir)
 	if err != nil {
 		return err
@@ -313,19 +283,6 @@ func cmdBlogNew(args []string) error {
 	return nil
 }
 
-func splitCSV(s string) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		if part != "" && !seen[part] {
-			seen[part] = true
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
 func cmdBlogPublish(args []string) error {
 	fs := flag.NewFlagSet("blog publish", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
@@ -337,12 +294,13 @@ func cmdBlogPublish(args []string) error {
 	return blogPublish(fs.Arg(0))
 }
 
+// blogPublish 提交并推送指定文章；push 失败不重试，原始输出透传给 agent/用户。
 func blogPublish(fileName string) error {
 	if !nameRe.MatchString(fileName) {
 		return fmt.Errorf("文件名 %q 非法", fileName)
 	}
-	repo := blogRepo()
-	postFile := filepath.Join(blogPostsDir(), fileName+".md")
+	repo := config.BlogRepo()
+	postFile := filepath.Join(config.BlogPostsDir(), fileName+".md")
 	if _, err := os.Stat(postFile); err != nil {
 		return fmt.Errorf("文章不存在: %s", postFile)
 	}
@@ -379,7 +337,7 @@ func blogPublish(fileName string) error {
 	fmt.Printf("发布完成：%s 已推送，GitHub Actions 将自动构建部署。\n", fileName+".md")
 	// 发布成功 → 更新本地四字段记录（lazy 维护）
 	if entry, err := parsePostFile(postFile); err == nil {
-		root := wikiRoot()
+		root := config.WikiRoot()
 		rec, lerr := loadBlogRecord(root)
 		if lerr == nil {
 			rec.upsert(entry)

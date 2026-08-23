@@ -1,4 +1,6 @@
-package main
+// Package view 提供跨项目知识库的全局查看能力：ls / tree / grep / cat，
+// 统一作用于 wiki 根下的 projects/ 链接视图，路径规格为 `项目/链接/相对路径`。
+package view
 
 import (
 	"bufio"
@@ -11,30 +13,29 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/daidaiJ/my-wiki-repo/internal/cli"
+	"github.com/daidaiJ/my-wiki-repo/internal/config"
+	"github.com/daidaiJ/my-wiki-repo/internal/registry"
 )
-
-// 全局查看命令统一作用于 wiki 的统一视图 <wikiRoot>/projects/，
-// 路径规格为 `项目名/链接名/相对路径`（与 grep 输出、链接布局一致）。
-
-func projectsRoot() string { return filepath.Join(wikiRoot(), "projects") }
 
 // resolveSpec 把路径规格解析到 projects 下的绝对路径，拒绝越界。
 func resolveSpec(spec string) (string, error) {
-	base := projectsRoot()
+	base := registry.ProjectsRoot()
 	p := filepath.Clean(filepath.Join(base, filepath.FromSlash(spec)))
-	if !underOrEqual(p, base) {
+	if !cli.UnderOrEqual(p, base) {
 		return "", fmt.Errorf("路径 %q 越出知识库范围", spec)
 	}
 	return p, nil
 }
 
-func cmdLS(args []string) error {
+// CmdLS 列出已接入项目，或某项目/子路径下的内容。
+func CmdLS(args []string) error {
 	if len(args) > 1 {
 		return errors.New("用法: wiki ls [项目[/链接/子路径]]")
 	}
-	root := wikiRoot()
 	if len(args) == 0 {
-		reg, err := loadRegistry(root)
+		reg, err := registry.LoadRegistry(config.WikiRoot())
 		if err != nil {
 			return err
 		}
@@ -77,7 +78,8 @@ func cmdLS(args []string) error {
 	return nil
 }
 
-func cmdCat(args []string) error {
+// CmdCat 查看知识库中的文件。
+func CmdCat(args []string) error {
 	if len(args) != 1 {
 		return errors.New("用法: wiki cat <项目/链接/文件路径>")
 	}
@@ -94,10 +96,11 @@ func cmdCat(args []string) error {
 	return err
 }
 
-func cmdTree(args []string) error {
+// CmdTree 渲染目录树。
+func CmdTree(args []string) error {
 	fs := flag.NewFlagSet("tree", flag.ContinueOnError)
 	depth := fs.Int("depth", 3, "最大深度")
-	if err := parseWithPositionals(fs, args); err != nil {
+	if err := cli.ParseWithPositionals(fs, args); err != nil {
 		return err
 	}
 	spec := ""
@@ -111,7 +114,7 @@ func cmdTree(args []string) error {
 		return err
 	}
 	if spec == "" {
-		fmt.Println("projects/")
+		fmt.Println(registry.ProjectsRootName + "/")
 	} else {
 		fmt.Println(strings.TrimSuffix(filepath.ToSlash(spec), "/") + "/")
 	}
@@ -147,19 +150,12 @@ func walkTree(dir, indent string, depth int, visited map[string]bool) {
 		if e.Type()&os.ModeSymlink != 0 {
 			marker = " -> " + symlinkTargetHint(filepath.Join(dir, e.Name()))
 		}
-		isDir := e.IsDir() || (e.Type()&os.ModeSymlink != 0 && dirExists(filepath.Join(dir, e.Name())))
-		fmt.Printf("%s%s%s%s\n", indent, conn, e.Name(), ternary(isDir, "/", "")+marker)
+		isDir := e.IsDir() || (e.Type()&os.ModeSymlink != 0 && cli.DirExists(filepath.Join(dir, e.Name())))
+		fmt.Printf("%s%s%s%s\n", indent, conn, e.Name(), cli.Ternary(isDir, "/", "")+marker)
 		if isDir && !skipDirNames[e.Name()] {
 			walkTree(filepath.Join(dir, e.Name()), next, depth-1, visited)
 		}
 	}
-}
-
-func ternary(cond bool, a, b string) string {
-	if cond {
-		return a
-	}
-	return b
 }
 
 func symlinkTargetHint(link string) string {
@@ -170,59 +166,16 @@ func symlinkTargetHint(link string) string {
 	return res
 }
 
-// walkFiles 递归遍历文件；与 filepath.Walk 的区别：跟进指向目录的符号链接/junction
-// （统一视图的核心能力），并用 resolved 路径去重防环路。
-func walkFiles(dir string, visited map[string]bool, fn func(path string) error) error {
-	if visited == nil {
-		visited = map[string]bool{}
-	}
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err == nil {
-		key := strings.ToLower(resolved)
-		if visited[key] {
-			return nil
-		}
-		visited[key] = true
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil // 单点失败不中断全局搜索
-	}
-	for _, e := range entries {
-		p := filepath.Join(dir, e.Name())
-		if e.Type()&os.ModeSymlink != 0 {
-			if dirExists(p) {
-				if err := walkFiles(p, visited, fn); err != nil {
-					return err
-				}
-			}
-			continue // 文件链接跳过
-		}
-		if e.IsDir() {
-			if skipDirNames[e.Name()] {
-				continue
-			}
-			if err := walkFiles(p, visited, fn); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := fn(p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 const (
 	grepMaxMatches = 200
 	grepMaxFile    = 1 << 20 // 超过 1MB 的文件跳过
 )
 
-func cmdGrep(args []string) error {
+// CmdGrep 跨项目内容搜索，输出 `项目/链接/文件:行号: 内容`（可直接喂给 CmdCat 的路径）。
+func CmdGrep(args []string) error {
 	fs := flag.NewFlagSet("grep", flag.ContinueOnError)
 	fixed := fs.Bool("fixed", false, "按字面量而非正则匹配")
-	if err := parseWithPositionals(fs, args); err != nil {
+	if err := cli.ParseWithPositionals(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 || fs.NArg() > 2 {
@@ -275,7 +228,51 @@ func cmdGrep(args []string) error {
 
 var errStopWalk = errors.New("stop walk")
 
-// grepFile 逐行匹配单个文件，输出 `项目/链接/文件:行号: 内容`（可直接喂给 wiki cat）。
+// walkFiles 递归遍历文件；与 filepath.Walk 的区别：跟进指向目录的符号链接/junction
+// （统一视图的核心能力），并用 resolved 路径去重防环路。
+func walkFiles(dir string, visited map[string]bool, fn func(path string) error) error {
+	if visited == nil {
+		visited = map[string]bool{}
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err == nil {
+		key := strings.ToLower(resolved)
+		if visited[key] {
+			return nil
+		}
+		visited[key] = true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil // 单点失败不中断全局搜索
+	}
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if e.Type()&os.ModeSymlink != 0 {
+			if cli.DirExists(p) {
+				if err := walkFiles(p, visited, fn); err != nil {
+					return err
+				}
+			}
+			continue // 文件链接跳过
+		}
+		if e.IsDir() {
+			if skipDirNames[e.Name()] {
+				continue
+			}
+			if err := walkFiles(p, visited, fn); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := fn(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// grepFile 逐行匹配单个文件，输出 `项目/链接/文件:行号: 内容`。
 func grepFile(path string, re *regexp.Regexp, base string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {

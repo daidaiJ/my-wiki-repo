@@ -1,13 +1,15 @@
-package main
+package registry
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/daidaiJ/my-wiki-repo/internal/cli"
 )
 
-// newTestWiki 建一个临时 my-wiki 根目录（含初始 index.md）。
+// newTestWiki 建一个临时 wiki 根目录（含初始 index.md）。
 func newTestWiki(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -17,7 +19,7 @@ func newTestWiki(t *testing.T) string {
 	return root
 }
 
-// newTestProject 建一个带 wiki-sync 声明的假项目（目录名即项目名），返回其根目录。
+// newTestProject 建一个带 wiki-sync 声明块的假项目（目录名即项目名），返回其根目录。
 func newTestProject(t *testing.T, name string, paths []string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), name)
@@ -37,7 +39,7 @@ func newTestProject(t *testing.T, name string, paths []string) string {
 
 func findTestEntry(t *testing.T, root, name string) *ProjectEntry {
 	t.Helper()
-	reg, err := loadRegistry(root)
+	reg, err := LoadRegistry(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +70,6 @@ func TestRegisterAndUnlink(t *testing.T) {
 		}
 	}
 
-	// 手动补注册表并落盘（register 命令逻辑的等价路径，命令层在冒烟里验证）
 	reg := &Registry{Projects: []ProjectEntry{entry}}
 	if err := saveRegistry(wiki, reg); err != nil {
 		t.Fatal(err)
@@ -78,7 +79,6 @@ func TestRegisterAndUnlink(t *testing.T) {
 		t.Errorf("登记内容不符: %+v", got)
 	}
 
-	// sync 应全部健康
 	if problems := syncProject(wiki, *got, false); len(problems) != 0 {
 		t.Errorf("刚注册就报问题: %v", problems)
 	}
@@ -92,7 +92,7 @@ func TestSyncFixHealsBrokenLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 只注册登记、不建链接 → sync 报失效，--fix 修复
+	// 只登记、不建链接 → sync 报失效，--fix 修复
 	got := findTestEntry(t, wiki, "brokenproj")
 	if problems := syncProject(wiki, *got, false); len(problems) == 0 {
 		t.Fatal("链接缺失时 sync 应报问题")
@@ -100,10 +100,10 @@ func TestSyncFixHealsBrokenLink(t *testing.T) {
 	if problems := syncProject(wiki, *got, true); len(problems) != 0 {
 		t.Fatalf("--fix 后仍有问题: %v", problems)
 	}
-	link := filepath.Join(wiki, "projects", "brokenproj", "wiki")
+	link := filepath.Join(wiki, ProjectsRootName, "brokenproj", "wiki")
 	if resolved, err := filepath.EvalSymlinks(link); err != nil {
 		t.Fatalf("修复后链接不可用: %v", err)
-	} else if !samePath(resolved, filepath.Join(proj, "wiki")) {
+	} else if !cli.SamePath(resolved, filepath.Join(proj, "wiki")) {
 		t.Errorf("链接指向 %s，期望 %s", resolved, filepath.Join(proj, "wiki"))
 	}
 }
@@ -143,14 +143,14 @@ func TestFlatKnowledgeDirRootPath(t *testing.T) {
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "note.md"), []byte("内容\n"), 0o644)
 
-	res, err := ensureRegistered(wiki, dir, &wikiSyncDecl{Paths: []string{"."}, Intro: "平铺知识目录"})
+	res, err := EnsureRegistered(wiki, dir, &WikiSyncDecl{Paths: []string{"."}, Intro: "平铺知识目录"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(wiki, "projects", "flatdocs", "flatdocs")
+	link := filepath.Join(wiki, ProjectsRootName, "flatdocs", "flatdocs")
 	if resolved, err := filepath.EvalSymlinks(link); err != nil {
 		t.Fatalf("根路径链接未建立: %v", err)
-	} else if !samePath(resolved, dir) {
+	} else if !cli.SamePath(resolved, dir) {
 		t.Errorf("链接指向 %s，期望 %s", resolved, dir)
 	}
 	// 根目录的 README 检查同样生效
@@ -159,21 +159,36 @@ func TestFlatKnowledgeDirRootPath(t *testing.T) {
 	}
 }
 
-func TestResolveWikiRootByMarker(t *testing.T) {
-	// 含 index.md 标记的目录被认定为 wiki 根（exe 所在目录检测的判定逻辑）
-	wiki := newTestWiki(t) // 已写入初始 index.md
-	if got := resolveWikiRoot(wiki); got != wiki {
-		t.Errorf("resolveWikiRoot(%s) = %q, 期望原目录", wiki, got)
+// TestDeclarationShrinkCleansOrphanLinks 声明收缩（如 --paths 变更）后，
+// 不再声明的旧链接应被清理，保留的链接不受影响。
+func TestDeclarationShrinkCleansOrphanLinks(t *testing.T) {
+	wiki := newTestWiki(t)
+	proj := newTestProject(t, "shrinkproj", []string{"wiki", "issues"})
+	os.Remove(filepath.Join(proj, "AGENTS.md")) // 集中式声明，项目无块
+
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki", "issues"}}); err != nil {
+		t.Fatal(err)
 	}
-	// 无标记的普通目录不认定（例如 exe 被复制到 PATH 目录的场景）
-	if got := resolveWikiRoot(t.TempDir()); got != "" {
-		t.Errorf("无 index.md 的目录不应被认定为 wiki 根, got %q", got)
+	orphan := filepath.Join(wiki, ProjectsRootName, "shrinkproj", "issues")
+	if _, err := os.Lstat(orphan); err != nil {
+		t.Fatalf("应有 issues 链接: %v", err)
+	}
+
+	// 收缩声明为仅 wiki
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
+		t.Errorf("孤儿链接应被清理: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(wiki, ProjectsRootName, "shrinkproj", "wiki")); err != nil {
+		t.Error("保留声明的 wiki 链接不应被误删")
 	}
 }
 
 func TestParseWikiSync(t *testing.T) {
 	proj := newTestProject(t, "p", []string{"wiki", "docs/research"})
-	decl, err := parseWikiSync(proj)
+	decl, err := ParseWikiSync(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,11 +199,11 @@ func TestParseWikiSync(t *testing.T) {
 
 func TestParseWikiSyncMissing(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := parseWikiSync(dir); err == nil {
+	if _, err := ParseWikiSync(dir); err == nil {
 		t.Error("无 AGENTS.md 应报错")
 	}
 	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("没有声明块"), 0o644)
-	if _, err := parseWikiSync(dir); err == nil {
+	if _, err := ParseWikiSync(dir); err == nil {
 		t.Error("无 wiki-sync 块应报错")
 	}
 }

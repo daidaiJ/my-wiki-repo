@@ -1,4 +1,4 @@
-module github.com/daidaiJ/my-wiki
+module github.com/daidaiJ/my-wiki-repo
 
 go 1.25.0
 

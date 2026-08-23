@@ -1,4 +1,4 @@
-package main
+package blog
 
 import (
 	"encoding/json"
@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/daidaiJ/my-wiki-repo/internal/cli"
 )
 
 // 博客发布记录：wiki 侧懒维护的一份「已发布文档四字段」数据（blog.json）。
-// - 首次 blog list 时扫描 Hugo 文章目录引导生成
-// - 之后按文件名增量对账：只解析新增文件、移除已删除文件，不重扫全量
-// - blog publish 成功后把该文章四字段写入记录
+//   - 首次 blog list 时扫描 Hugo 文章目录引导生成
+//   - 之后按文件名增量对账：只解析新增文件、移除已删除文件，不重扫全量
+//   - blog publish 成功后把该文章四字段写入记录
+//
 // blog list 只聚合 categories/tags 两字段；title/slug 重复罕见，
 // 在 blog new（apply 时）直接报错即可。
 
@@ -48,7 +51,7 @@ func loadBlogRecord(root string) (*BlogRecord, error) {
 
 func (r *BlogRecord) save(root string) error {
 	sort.Slice(r.Posts, func(i, j int) bool { return r.Posts[i].File < r.Posts[j].File })
-	return os.WriteFile(recordPath(root), mustJSONIndent(r), 0o644)
+	return os.WriteFile(recordPath(root), cli.JSONIndent(r), 0o644)
 }
 
 func (r *BlogRecord) upsert(e BlogRecEntry) {

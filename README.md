@@ -25,18 +25,31 @@ my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里�
 
 | 依赖 | 何时需要 | 说明 |
 |---|---|---|
-| Go ≥ 1.25 | 仅构建时 | 唯一第三方库是 `gopkg.in/yaml.v3`，产出单二进制 |
+| Go ≥ 1.25 | 仅自行构建时 | 唯一第三方库是 `gopkg.in/yaml.v3`，产出单二进制；也可以直接从 [Releases](../../releases) 下载对应平台的二进制（免 Go） |
 | git | 仅 `blog publish` | 本地 commit + push |
 | Hugo | **不需要** | 文章文件直写，部署交给博客仓库自己的 CI |
 | 符号链接权限 | 无要求 | Linux/macOS 原生支持；Windows 无需管理员权限（自动降级为 junction） |
 
 运行平台：Windows / Linux / macOS。
 
+## 仓库结构
+
+```
+cmd/wiki/            入口：子命令分发与 usage
+internal/cli/        共享小工具（宽容 flag 解析、字符串/路径助手）
+internal/config/     配置解析：wiki 根定位、config.json、knowledgeDirs、博客仓库
+internal/registry/   核心域：注册表、知识目录链接、init/register/list/sync/check
+internal/view/       全局查看：ls / tree / grep / cat
+internal/blog/       博客流水线：front matter、发布记录、new/publish
+internal/guide/      规约引导段注入（wiki inject）
+AGENTS.md            agent 规约（命令契约与工作流边界）
+```
+
 ## 快速开始
 
 ```bash
 git clone https://github.com/daidaiJ/my-wiki-repo.git
-cd my-wiki-repo && go build -o wiki .
+cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 # 接入一个项目（自动发现项目下的 wiki/ 和 issues/ 目录）
 ./wiki init /path/to/some-project --intro "一句话介绍"

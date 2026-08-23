@@ -1,4 +1,4 @@
-package main
+package blog
 
 import (
 	"os"
@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 )
+
+func fixedTime() time.Time {
+	return time.Date(2026, 8, 23, 10, 30, 0, 0, time.FixedZone("CST", 8*3600))
+}
 
 func newTestPostDir(t *testing.T, seedPosts map[string]string) string {
 	t.Helper()
@@ -17,6 +21,122 @@ func newTestPostDir(t *testing.T, seedPosts map[string]string) string {
 		}
 	}
 	return dir
+}
+
+func TestGenerateFrontMatterGolden(t *testing.T) {
+	got := generateFrontMatter(NewPostMeta{
+		Title:      "Google ax + substrate：智能体运行时调度架构分析",
+		Slug:       "google-ax-agent-runtime",
+		Categories: []string{"技术笔记", "AI"},
+		Tags:       []string{"智能体", "kubernetes"},
+		Now:        fixedTime(),
+	})
+	want := `---
+title: "Google ax + substrate：智能体运行时调度架构分析"
+slug: google-ax-agent-runtime
+description: ""
+date: 2026-08-23T10:30:00+08:00
+lastmod: 2026-08-23T10:30:00+08:00
+draft: false
+toc: true
+hidden: false
+weight: false
+musicid: 5264842
+qqmusic: 
+categories:
+    - 技术笔记
+    - AI
+tags :
+    - 智能体
+    - kubernetes
+image: https://picsum.photos/seed/3b36cb88/800/600
+---`
+	if got != want {
+		t.Errorf("front matter 与预期不一致:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// axPostFM 是线上真实文章的 front matter（含 `tags :` 冒号前空格的既有写法）。
+const axPostFM = `---
+title: "Google ax + substrate：智能体运行时调度架构分析"
+slug: google-ax-agent-runtime
+description: ""
+date: 2026-06-07T09:53:32+08:00
+lastmod: 2026-06-07T09:53:32+08:00
+draft: false
+toc: true
+hidden: false
+weight: false
+musicid: 5264842
+qqmusic: 
+categories:
+    - 技术笔记
+    - AI
+tags :
+    - 智能体
+    - kubernetes
+image: https://picsum.photos/seed/40aa71ea/800/600
+---
+
+# 正文标题
+
+正文内容。
+`
+
+func TestParseFrontMatterRealPost(t *testing.T) {
+	fm, err := parseFrontMatter(axPostFM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm.Title != "Google ax + substrate：智能体运行时调度架构分析" {
+		t.Errorf("title = %q", fm.Title)
+	}
+	if fm.Slug != "google-ax-agent-runtime" {
+		t.Errorf("slug = %q", fm.Slug)
+	}
+	if strings.Join(fm.Categories, ",") != "技术笔记,AI" {
+		t.Errorf("categories = %v", fm.Categories)
+	}
+	if strings.Join(fm.Tags, ",") != "智能体,kubernetes" {
+		t.Errorf("tags = %v", fm.Tags)
+	}
+}
+
+func TestParseFrontMatterFlowStyle(t *testing.T) {
+	content := "---\ntitle: \"x\"\ncategories: [\"a\", \"b\"]\ntags: [\"golang\"]\nslug: x\n---\nbody"
+	fm, err := parseFrontMatter(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(fm.Categories, ",") != "a,b" {
+		t.Errorf("categories = %v", fm.Categories)
+	}
+	if strings.Join(fm.Tags, ",") != "golang" {
+		t.Errorf("tags = %v", fm.Tags)
+	}
+}
+
+func TestParseFrontMatterErrors(t *testing.T) {
+	if _, err := parseFrontMatter("no front matter"); err == nil {
+		t.Error("缺开头 --- 应报错")
+	}
+	if _, err := parseFrontMatter("---\ntitle: \"x\"\n"); err == nil {
+		t.Error("缺结束 --- 应报错")
+	}
+}
+
+func TestYamlQuote(t *testing.T) {
+	cases := map[string]string{
+		"普通中文":      `"普通中文"`,
+		`含"引号"`:     `"含\"引号\""`,
+		`含\反斜杠`:     `"含\\反斜杠"`,
+		`Agent 运行时`: `"Agent 运行时"`,
+	}
+	for in, want := range cases {
+		if got := yamlQuote(in); got != want {
+			t.Errorf("yamlQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
 }
 
 func TestCollectPostsToleratesBadFM(t *testing.T) {
@@ -99,15 +219,7 @@ func TestCreatePostAndConflict(t *testing.T) {
 	}
 }
 
-func TestSplitCSV(t *testing.T) {
-	got := splitCSV(" 技术笔记, AI ,,笔记,")
-	want := "技术笔记|AI|笔记"
-	if strings.Join(got, "|") != want {
-		t.Errorf("splitCSV = %v, want %s", got, want)
-	}
-}
-
-func TestSlugAndNameValidation(t *testing.T) {
+func TestSlugValidation(t *testing.T) {
 	for _, ok := range []string{"google-ax-agent-runtime", "vllm-deploy", "a1"} {
 		if !slugRe.MatchString(ok) {
 			t.Errorf("%s 应合法", ok)
@@ -117,50 +229,6 @@ func TestSlugAndNameValidation(t *testing.T) {
 		if slugRe.MatchString(bad) {
 			t.Errorf("%s 应非法", bad)
 		}
-	}
-}
-
-// TestParseRealPosts 在真实博客目录存在时，用线上文章验证解析与记录引导。
-func TestParseRealPosts(t *testing.T) {
-	dir := blogPostsDir()
-	if _, err := os.Stat(dir); err != nil {
-		t.Skipf("真实博客目录不存在，跳过: %v", err)
-	}
-	wiki := newTestWiki(t) // 记录写到临时根，不污染真实 wiki 根
-	t.Setenv("WIKI_ROOT", wiki)
-
-	posts, err := collectPosts(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(posts) < 40 {
-		t.Fatalf("真实文章应 ≥40 篇，得到 %d", len(posts))
-	}
-	bad := 0
-	for _, p := range posts {
-		if p.Title == "" || p.Title == p.File {
-			bad++
-		}
-	}
-	if bad > 2 {
-		t.Errorf("%d 篇文章标题解析异常（容忍少量历史遗留）", bad)
-	}
-
-	rec, err := reconcileRecord(wiki, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rec.Posts) != len(posts) {
-		t.Errorf("记录引导数 %d != 实际 %d", len(rec.Posts), len(posts))
-	}
-	cats := aggregate(rec, func(e BlogRecEntry) []string { return e.Categories })
-	if cats["笔记"] < 5 {
-		t.Errorf("categories 聚合异常: %+v", cats)
-	}
-	// 二次对账应幂等
-	rec2, _ := reconcileRecord(wiki, dir)
-	if len(rec2.Posts) != len(rec.Posts) {
-		t.Errorf("二次对账不幂等: %d vs %d", len(rec2.Posts), len(rec.Posts))
 	}
 }
 
