@@ -14,20 +14,35 @@ import (
 	"strings"
 )
 
-const defaultWikiRoot = `D:\CODE\ai\my-wiki`
+// wikiRoot 的解析见下方函数；开源工具不含任何硬编码个人路径。
 
-// wikiRoot 解析顺序：WIKI_ROOT 环境变量 → wiki.exe 所在目录（存在 index.md 标记时，
-// exe 与规约同仓库部署，仓库整体搬移后无需改任何配置）→ 内置默认值。
+// wikiRoot 解析顺序（开源可移植，无任何硬编码个人路径）：
+//
+//  1. WIKI_ROOT 环境变量（显式指定，最高优先）
+//  2. wiki.exe 所在目录 —— 存在 index.md 标记时认定（clone 本仓库后 go build 的默认形态）
+//  3. 当前目录 —— 存在 index.md 标记时认定（exe 在 PATH 上、人在 wiki 根里执行的场景）
+//  4. 兜底 exe 所在目录（首次使用时由工具在该目录生成 index.md）
 func wikiRoot() string {
 	if v := os.Getenv("WIKI_ROOT"); v != "" {
 		return v
 	}
+	exeDir := ""
 	if exe, err := os.Executable(); err == nil {
-		if dir := resolveWikiRoot(filepath.Dir(exe)); dir != "" {
+		exeDir = filepath.Dir(exe)
+		if dir := resolveWikiRoot(exeDir); dir != "" {
 			return dir
 		}
 	}
-	return defaultWikiRoot
+	if wd, err := os.Getwd(); err == nil {
+		if dir := resolveWikiRoot(wd); dir != "" {
+			return dir
+		}
+	}
+	if exeDir != "" {
+		return exeDir
+	}
+	wd, _ := os.Getwd()
+	return wd
 }
 
 // resolveWikiRoot 判断某目录是否为 wiki 根（含 index.md 注册表标记），是则返回该目录。
@@ -298,6 +313,16 @@ func ensureRegistered(root, abs string, decl *wikiSyncDecl) (*EnsureResult, erro
 func findEntry(reg *Registry, name string) (ProjectEntry, bool) {
 	for _, p := range reg.Projects {
 		if p.Name == name {
+			return p, true
+		}
+	}
+	return ProjectEntry{}, false
+}
+
+// findEntryByRoot 按项目根目录精确匹配注册项（Stop hook 据此定位当前项目）。
+func findEntryByRoot(reg *Registry, abs string) (ProjectEntry, bool) {
+	for _, p := range reg.Projects {
+		if samePath(p.Root, abs) {
 			return p, true
 		}
 	}

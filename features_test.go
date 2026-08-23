@@ -8,149 +8,97 @@ import (
 	"testing"
 )
 
-// --- wiki init ---
-
-func TestUpsertWikiSyncBlock(t *testing.T) {
-	dir := t.TempDir()
-	decl := &wikiSyncDecl{Paths: []string{"wiki"}, Intro: "介绍一"}
-
-	// 文件不存在 → 创建
-	if err := upsertWikiSyncBlock(dir, decl); err != nil {
-		t.Fatal(err)
-	}
-	got, err := parseWikiSync(dir)
-	if err != nil {
-		t.Fatalf("创建后应可解析: %v", err)
-	}
-	if got.Intro != "介绍一" || len(got.Paths) != 1 {
-		t.Errorf("decl = %+v", got)
-	}
-
-	// 有其他内容 → 原位替换，其余内容不动
-	agents := filepath.Join(dir, "AGENTS.md")
-	data, _ := os.ReadFile(agents)
-	withCtx := append([]byte("# 项目说明\n\n一些既有内容。\n\n"), data...)
-	os.WriteFile(agents, withCtx, 0o644)
-	decl.Intro = "介绍二"
-	decl.Summary = "这是摘要"
-	if err := upsertWikiSyncBlock(dir, decl); err != nil {
-		t.Fatal(err)
-	}
-	data2, _ := os.ReadFile(agents)
-	if !strings.Contains(string(data2), "一些既有内容") {
-		t.Error("替换块时不应动其他内容")
-	}
-	got, err = parseWikiSync(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Intro != "介绍二" || got.Summary != "这是摘要" {
-		t.Errorf("更新后 decl = %+v", got)
-	}
-	if n := strings.Count(string(data2), "wiki-sync"); n != 1 {
-		t.Errorf("应只有一个声明块，实际 %d", n)
-	}
-}
+// --- wiki init（声明集中化：项目仓库零足迹） ---
 
 func TestInitFlowAndMetadataUpdate(t *testing.T) {
 	wiki := newTestWiki(t)
 	proj := newTestProject(t, "flowproj", []string{"wiki"})
-	// newTestProject 自带声明块，先清掉介绍模拟首次接入
-	os.WriteFile(filepath.Join(proj, "AGENTS.md"), []byte("# AGENTS\n"), 0o644)
+	// 声明不再写入项目 AGENTS.md：接入后项目目录应无任何新文件
+	os.Remove(filepath.Join(proj, "AGENTS.md"))
 
-	// 首次接入必须 --paths
-	root := wiki
-	if res, err := ensureRegisteredByInit(root, proj, "", "", ""); err == nil {
-		t.Fatalf("缺 --paths 应报错, got %+v", res)
+	// 无知识目录且未注册 → 自动发现失败应报错
+	empty := filepath.Join(t.TempDir(), "flowproj")
+	os.MkdirAll(empty, 0o755)
+	if res, err := initByHelper(wiki, empty, "", "", ""); err == nil {
+		t.Fatalf("无可发现目录应报错, got %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(empty, "AGENTS.md")); err == nil {
+		t.Fatal("init 不应在项目仓库创建 AGENTS.md")
 	}
 
-	// 接入（intro 留空）
-	if _, err := ensureRegisteredByInit(root, proj, "wiki", "", ""); err != nil {
+	// 自动发现：wiki/ 存在则直接接入
+	if _, err := initByHelper(wiki, proj, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	e := findTestEntry(t, root, "flowproj")
+	e := findTestEntry(t, wiki, "flowproj")
+	if len(e.Paths) != 1 || e.Paths[0] != "wiki" {
+		t.Fatalf("自动发现应接入 wiki: %+v", e)
+	}
 	if e.Intro != "" {
 		t.Errorf("intro 应为空待补充, got %q", e.Intro)
 	}
 
 	// 后期任意时间只补 intro/summary：paths 省略保留
-	if _, err := ensureRegisteredByInit(root, proj, "", "一句话介绍", "几句话摘要"); err != nil {
+	if _, err := initByHelper(wiki, proj, "", "一句话介绍", "几句话摘要"); err != nil {
 		t.Fatal(err)
 	}
-	e = findTestEntry(t, root, "flowproj")
+	e = findTestEntry(t, wiki, "flowproj")
 	if e.Intro != "一句话介绍" || e.Summary != "几句话摘要" {
-		t.Errorf("元数据未同步: %+v", e)
+		t.Errorf("元数据未更新: %+v", e)
 	}
 	if len(e.Paths) != 1 || e.Paths[0] != "wiki" {
 		t.Errorf("paths 应保留: %v", e.Paths)
 	}
-
-	// AGENTS.md 块也应更新（check hook 从这里再同步）
-	decl, err := parseWikiSync(proj)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decl.Intro != "一句话介绍" {
-		t.Errorf("AGENTS.md 块 intro = %q", decl.Intro)
+	if _, err := os.Stat(filepath.Join(proj, "AGENTS.md")); err == nil {
+		t.Fatal("元数据补充也不应在项目仓库创建文件")
 	}
 }
 
-// ensureRegisteredByInit 复刻 cmdInit 的核心路径（不经过 flag 解析）。
-func ensureRegisteredByInit(root, proj, paths, intro, summary string) (*EnsureResult, error) {
-	old, oldErr := parseWikiSync(proj)
-	hadBlock := oldErr == nil
+// initByHelper 复刻 cmdInit 的核心路径（不经过 flag 解析）。
+func initByHelper(root, proj, paths, intro, summary string) (*EnsureResult, error) {
+	reg, err := loadRegistry(root)
+	if err != nil {
+		return nil, err
+	}
+	old, had := findEntryByRoot(reg, proj)
 	decl := &wikiSyncDecl{}
 	switch {
 	case paths != "":
 		decl.Paths = splitCSV(paths)
-	case hadBlock:
+	case had:
 		decl.Paths = old.Paths
 	default:
-		return nil, os.ErrInvalid
+		decl.Paths = discoverKnowledgeDirs(proj, knowledgeDirs())
+		if len(decl.Paths) == 0 {
+			return nil, os.ErrInvalid
+		}
 	}
-	decl.Intro = old.getIntroOr(intro)
-	decl.Summary = old.getSummaryOr(summary)
-	if err := validatePaths(proj, decl.Paths); err != nil {
-		return nil, err
-	}
-	if err := upsertWikiSyncBlock(proj, decl); err != nil {
-		return nil, err
-	}
+	decl.Intro = pick(intro, old.Intro)
+	decl.Summary = pick(summary, old.Summary)
 	return ensureRegistered(root, proj, decl)
 }
 
-// --- wiki check（Stop hook 自动同步） ---
+// --- wiki check（Stop hook 自动同步：注册表优先，AGENTS.md 块仅 opt-in 回退） ---
 
-func TestCheckAutoSync(t *testing.T) {
+func TestCheckAutoSyncByRegistry(t *testing.T) {
 	wiki := newTestWiki(t)
 	proj := newTestProject(t, "autoproj", []string{"wiki"})
 	os.WriteFile(filepath.Join(proj, "wiki", "README.md"), []byte("# 索引\n"), 0o644)
+	os.Remove(filepath.Join(proj, "AGENTS.md")) // 集中式：项目里没有声明块
 
-	// 无声明块（AGENTS.md 覆盖为空）→ check 静默无副作用
-	os.WriteFile(filepath.Join(proj, "AGENTS.md"), []byte("# AGENTS\n"), 0o644)
+	// 未注册且无声明块 → check 静默无副作用
 	if err := checkLogic(wiki, proj); err != nil {
 		t.Fatal(err)
 	}
 	reg, _ := loadRegistry(wiki)
-	if _, ok := findEntry(reg, "autoproj"); ok {
-		t.Fatal("无声明块时不应注册")
+	if _, ok := findEntryByRoot(reg, proj); ok {
+		t.Fatal("未声明时不应注册")
 	}
 
-	// 有声明块 → 自动注册
-	if err := checkLogic(wiki, proj); err != nil {
+	// 注册后 → check 按注册表自动维护
+	if _, err := ensureRegistered(wiki, proj, &wikiSyncDecl{Paths: []string{"wiki"}, Intro: "自动同步介绍"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := upsertWikiSyncBlock(proj, &wikiSyncDecl{Paths: []string{"wiki"}, Intro: "自动同步介绍"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkLogic(wiki, proj); err != nil {
-		t.Fatal(err)
-	}
-	e := findTestEntry(t, wiki, "autoproj")
-	if e.Intro != "自动同步介绍" {
-		t.Errorf("check 应把 AGENTS.md 新 intro 同步进注册表: %+v", e)
-	}
-
 	// 破坏链接 → check 自动修复
 	link := filepath.Join(wiki, "projects", "autoproj", "wiki")
 	os.Remove(link)
@@ -159,6 +107,19 @@ func TestCheckAutoSync(t *testing.T) {
 	}
 	if _, err := os.Lstat(link); err != nil {
 		t.Error("check 应自动重建失效链接")
+	}
+}
+
+func TestCheckFallbackToAgentsBlock(t *testing.T) {
+	wiki := newTestWiki(t)
+	proj := newTestProject(t, "blockproj", []string{"wiki"}) // 自带 AGENTS.md 声明块（opt-in）
+	// 未注册但有声明块 → check 仍应自动接入
+	if err := checkLogic(wiki, proj); err != nil {
+		t.Fatal(err)
+	}
+	e := findTestEntry(t, wiki, "blockproj")
+	if len(e.Paths) != 1 || e.Paths[0] != "wiki" {
+		t.Errorf("声明块回退未生效: %+v", e)
 	}
 }
 
@@ -254,13 +215,18 @@ func TestConfigPrecedence(t *testing.T) {
 	wiki := newTestWiki(t)
 	t.Setenv("WIKI_ROOT", wiki)
 	t.Setenv("WIKI_BLOG_REPO", "") // 确认未被外层污染
+	t.Setenv("WIKI_KNOWLEDGE_DIRS", "")
 
-	// 默认
-	if got := blogRepo(); got != defaultBlogRepo {
-		t.Errorf("默认 blogRepo = %q", got)
+	// 无默认：未配置时报错并给出指引（开源工具不含个人路径）
+	if _, err := requireBlogRepo(); err == nil || !strings.Contains(err.Error(), "wiki config set blogRepo") {
+		t.Errorf("未配置 blogRepo 应报错并给指引: %v", err)
+	}
+	// knowledgeDirs 默认 wiki,issues
+	if got := strings.Join(knowledgeDirs(), ","); got != "wiki,issues" {
+		t.Errorf("默认 knowledgeDirs = %q", got)
 	}
 	// config.json
-	cfg := &wikiConfig{BlogRepo: `X:\blog`}
+	cfg := &wikiConfig{BlogRepo: `X:\blog`, KnowledgeDirs: []string{"wiki", "notes"}}
 	if err := cfg.save(wiki); err != nil {
 		t.Fatal(err)
 	}
@@ -270,9 +236,16 @@ func TestConfigPrecedence(t *testing.T) {
 	if got := blogPostsDir(); got != filepath.Join(`X:\blog`, postsRelDir) {
 		t.Errorf("config blogPosts = %q", got)
 	}
+	if got := strings.Join(knowledgeDirs(), ","); got != "wiki,notes" {
+		t.Errorf("config knowledgeDirs = %q", got)
+	}
 	// env 覆盖 config
 	t.Setenv("WIKI_BLOG_REPO", `Y:\blog`)
 	if got := blogRepo(); got != `Y:\blog` {
 		t.Errorf("env blogRepo = %q", got)
+	}
+	t.Setenv("WIKI_KNOWLEDGE_DIRS", "wiki,zhishi")
+	if got := strings.Join(knowledgeDirs(), ","); got != "wiki,zhishi" {
+		t.Errorf("env knowledgeDirs = %q", got)
 	}
 }

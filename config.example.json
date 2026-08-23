@@ -1,0 +1,4 @@
+{
+  "blogRepo": "D:/path/to/your-hugo-repo",
+  "knowledgeDirs": ["wiki", "issues"]
+}

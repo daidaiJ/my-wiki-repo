@@ -20,21 +20,43 @@ func cmdCheck(args []string) error {
 }
 
 // checkLogic 是 hook 的实际逻辑，抽出来便于测试。
+// 定位顺序：本地注册表按项目根精确匹配（声明集中化，项目仓库零足迹）
+// → 项目 AGENTS.md 的 wiki-sync 块（可选的显式 opt-in，工具不再代写）。
 func checkLogic(root, proj string) error {
 	// my-wiki 自身（或其子目录）无需接入
 	if underOrEqual(proj, root) {
 		return nil
 	}
 
+	if reg, err := loadRegistry(root); err == nil {
+		if entry, ok := findEntryByRoot(reg, proj); ok {
+			return syncEntry(root, entry)
+		}
+	}
 	decl, err := parseWikiSync(proj)
 	if err != nil {
-		return nil // 无 AGENTS.md 或无声明块：静默
+		return nil // 未注册且无声明块：静默
 	}
+	return syncDecl(root, proj, decl)
+}
+
+// syncDecl 按声明同步并输出诊断（stdout 恒空）。
+func syncDecl(root, proj string, decl *wikiSyncDecl) error {
 	res, err := ensureRegistered(root, proj, decl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wiki check: 同步 %s 失败: %v\n", proj, err)
 		return nil
 	}
+	logSyncResult(res)
+	return nil
+}
+
+// syncEntry 按注册表现有内容幂等维护链接与元数据。
+func syncEntry(root string, entry ProjectEntry) error {
+	return syncDecl(root, entry.Root, &wikiSyncDecl{Paths: entry.Paths, Intro: entry.Intro, Summary: entry.Summary})
+}
+
+func logSyncResult(res *EnsureResult) {
 	if res.RegistryChanged {
 		fmt.Fprintf(os.Stderr, "wiki check: 已更新 %s 的注册信息\n", res.Entry.Name)
 	}
@@ -44,7 +66,6 @@ func checkLogic(root, proj string) error {
 	for _, w := range res.ReadmeWarnings {
 		fmt.Fprintln(os.Stderr, "wiki check ⚠ "+w)
 	}
-	return nil
 }
 
 // projectDirFromEnv 取 hook 注入的项目目录环境变量，缺省回退 cwd。

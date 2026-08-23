@@ -10,7 +10,7 @@ description: 跨项目知识库与 Hugo 博客发布工具。接入项目知识�
 ## 接入项目 / 补充元数据（任意时间可做）
 
 ```bash
-wiki init <项目路径> --paths wiki[,issues]  # 首次接入（写 AGENTS.md 声明块并注册；规约只认专用目录 wiki/、issues/，平铺知识库可声明 "."，勿接入 docs/ 等官方文档同名目录；上游自带同名目录的先干掉或整理合并）
+wiki init <项目路径>                     # 首次接入（自动发现 wiki/issues 目录；声明只存本地注册表，项目仓库零足迹）
 wiki init <项目路径> --intro "一句话介绍" --summary "摘要"   # 事后补充/更新介绍（paths 省略保留）
 ```
 

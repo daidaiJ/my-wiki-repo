@@ -1,5 +1,5 @@
 projects/
 *.exe
 wiki
-
+config.json
 .zcode/

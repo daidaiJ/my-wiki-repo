@@ -18,11 +18,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	defaultBlogRepo = `D:\note\daidaiJ.github.io`
-	postsRelDir     = `pandawo\content\post`
-)
+// postsRelDir 是文章目录相对仓库根的默认位置（Hugo 站点在 pandawo 子目录）。
+const postsRelDir = `pandawo\content\post`
 
+// blogRepo 博客 git 仓库根：开源工具无内置默认值，须通过 config.json 或环境变量配置。
 func blogRepo() string {
 	if v := os.Getenv("WIKI_BLOG_REPO"); v != "" {
 		return v
@@ -30,7 +29,16 @@ func blogRepo() string {
 	if cfg := loadWikiConfig(wikiRoot()); cfg.BlogRepo != "" {
 		return cfg.BlogRepo
 	}
-	return defaultBlogRepo
+	return ""
+}
+
+// requireBlogRepo 供博客命令统一校验并给出配置指引。
+func requireBlogRepo() (string, error) {
+	repo := blogRepo()
+	if repo == "" {
+		return "", errors.New("未配置博客仓库：执行 wiki config set blogRepo <你的 Hugo 仓库绝对路径>（或设 WIKI_BLOG_REPO 环境变量）")
+	}
+	return repo, nil
 }
 
 func blogPostsDir() string {
@@ -143,6 +151,9 @@ func collectPosts(postDir string) ([]PostInfo, error) {
 func cmdBlog(args []string) error {
 	if len(args) == 0 {
 		return errors.New("用法: wiki blog <list|new|publish>")
+	}
+	if _, err := requireBlogRepo(); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "list":

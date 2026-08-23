@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,46 +9,14 @@ import (
 	"strings"
 )
 
-// buildWikiSyncBlock 生成要写入项目 AGENTS.md 的 wiki-sync 声明块。
-func buildWikiSyncBlock(decl *wikiSyncDecl) string {
-	data, _ := json.MarshalIndent(decl, "", "  ")
-	return "<!-- wiki-sync\n" + string(data) + "\n-->"
-}
-
-// upsertWikiSyncBlock 把声明块写进项目的 AGENTS.md：
-// 已有块则原位替换，没有则追加；文件不存在则创建。其余内容保持不动。
-func upsertWikiSyncBlock(projectRoot string, decl *wikiSyncDecl) error {
-	path := filepath.Join(projectRoot, "AGENTS.md")
-	data, err := os.ReadFile(path)
-	block := buildWikiSyncBlock(decl)
-	switch {
-	case err == nil:
-		if wikiSyncRe.Match(data) {
-			updated := wikiSyncRe.ReplaceAll(data, []byte(block))
-			if string(updated) == string(data) {
-				return nil
-			}
-			return os.WriteFile(path, updated, 0o644)
-		}
-		sep := "\n"
-		if len(data) == 0 || data[len(data)-1] == '\n' {
-			sep = ""
-		}
-		return os.WriteFile(path, append(append(data, []byte(sep+"\n")...), []byte(block+"\n")...), 0o644)
-	case errors.Is(err, os.ErrNotExist):
-		content := "# AGENTS.md\n\n" + block + "\n"
-		return os.WriteFile(path, []byte(content), 0o644)
-	default:
-		return err
-	}
-}
-
-// cmdInit 是 agent 的接入入口：写入/更新声明块并立即注册。
+// cmdInit 是 agent 的接入入口：声明与元数据只写入 my-wiki 本地注册表（index.md，
+// 本地 git 无 remote），并在 projects/ 下建链接。**不在项目仓库留下任何文件**，
+// 因此声明块永远不会随项目 commit/push 泄漏到远程。
 // paths 首次必填；intro/summary 可在任意时间事后补充（省略时保留已有值）。
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := fs.String("dir", "", "项目根目录（可省略，改用位置参数或当前目录）")
-	paths := fs.String("paths", "", "接入的知识目录，逗号分隔的相对路径（首次必填；省略则保留已有）")
+	paths := fs.String("paths", "", "接入的知识目录，逗号分隔相对路径（省略则自动发现已配置类型名的目录；平铺知识库用 .）")
 	intro := fs.String("intro", "", "一句话项目介绍（可事后补充/更新）")
 	summary := fs.String("summary", "", "项目摘要，几句话（可事后补充/更新）")
 	if err := parseWithPositionals(fs, args); err != nil {
@@ -69,63 +36,72 @@ func cmdInit(args []string) error {
 		return err
 	}
 
-	old, oldErr := parseWikiSync(abs)
-	hadBlock := oldErr == nil
+	root := wikiRoot()
+	reg, err := loadRegistry(root)
+	if err != nil {
+		return err
+	}
+	old, had := findEntryByRoot(reg, abs)
+
+	kdirs := knowledgeDirs()
 	decl := &wikiSyncDecl{}
 	switch {
 	case *paths != "":
 		decl.Paths = splitCSV(*paths)
-	case hadBlock:
+	case had:
 		decl.Paths = old.Paths
 	default:
-		return errors.New("首次接入必须 --paths 指定知识目录（逗号分隔，如 wiki,docs/research）")
+		// 自动发现：项目根下存在哪些已配置的知识目录类型名就接哪些
+		decl.Paths = discoverKnowledgeDirs(abs, kdirs)
+		if len(decl.Paths) == 0 {
+			return fmt.Errorf("未在 %s 发现知识目录（类型名 %s）。用 --paths 显式指定，或在 config.json 的 knowledgeDirs 里调整类型名", abs, strings.Join(kdirs, ", "))
+		}
 	}
-	decl.Intro = old.getIntroOr(*intro)
-	decl.Summary = old.getSummaryOr(*summary)
+	decl.Intro = pick(*intro, old.Intro)
+	decl.Summary = pick(*summary, old.Summary)
 
-	if err := validatePaths(abs, decl.Paths); err != nil {
-		return err
-	}
-	if err := upsertWikiSyncBlock(abs, decl); err != nil {
-		return fmt.Errorf("写入 AGENTS.md 失败: %w", err)
+	for _, p := range decl.Paths {
+		if p != "." && !containsStr(kdirs, p) {
+			fmt.Fprintf(os.Stderr, "⚠ %s 不在配置的知识目录类型名（%s）内，确认不是上游官方文档目录再接入\n", p, strings.Join(kdirs, ", "))
+		}
 	}
 
-	root := wikiRoot()
 	res, err := ensureRegistered(root, abs, decl)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("已接入项目 %s（%s）\n  声明块: %s/AGENTS.md（%s）\n  接入路径: %s\n",
-		res.Entry.Name, abs, abs, ternary(hadBlock, "原位更新", "新建"), strings.Join(decl.Paths, ", "))
+	fmt.Printf("已接入项目 %s（%s）\n  声明位置: %s（本地注册表，项目仓库零足迹，不会随项目 push 外泄）\n  接入路径: %s\n",
+		res.Entry.Name, abs, registryPath(root), strings.Join(decl.Paths, ", "))
 	for _, w := range res.ReadmeWarnings {
 		fmt.Fprintln(os.Stderr, "⚠ "+w)
 	}
 	return nil
 }
 
-func (d *wikiSyncDecl) getIntroOr(v string) string {
-	if v != "" {
-		return v
+// discoverKnowledgeDirs 扫描项目根，返回存在且已配置的知识目录类型名（按配置顺序）。
+func discoverKnowledgeDirs(proj string, kdirs []string) []string {
+	var found []string
+	for _, name := range kdirs {
+		if fi, err := os.Stat(filepath.Join(proj, name)); err == nil && fi.IsDir() {
+			found = append(found, name)
+		}
 	}
-	if d != nil {
-		return d.Intro
-	}
-	return ""
+	return found
 }
 
-func (d *wikiSyncDecl) getSummaryOr(v string) string {
-	if v != "" {
-		return v
+func containsStr(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
 	}
-	if d != nil {
-		return d.Summary
-	}
-	return ""
+	return false
 }
 
-func ternary(cond bool, a, b string) string {
-	if cond {
-		return a
+// pick 新值非空取新值，否则保留旧值。
+func pick(newVal, oldVal string) string {
+	if newVal != "" {
+		return newVal
 	}
-	return b
+	return oldVal
 }

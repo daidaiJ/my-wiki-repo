@@ -155,6 +155,13 @@ func walkTree(dir, indent string, depth int, visited map[string]bool) {
 	}
 }
 
+func ternary(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
+}
+
 func symlinkTargetHint(link string) string {
 	res, err := filepath.EvalSymlinks(link)
 	if err != nil {

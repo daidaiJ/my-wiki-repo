@@ -142,16 +142,8 @@ func TestFlatKnowledgeDirRootPath(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "flatdocs")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "note.md"), []byte("内容\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# AGENTS\n"), 0o644)
 
-	if err := upsertWikiSyncBlock(dir, &wikiSyncDecl{Paths: []string{"."}, Intro: "平铺知识目录"}); err != nil {
-		t.Fatal(err)
-	}
-	decl, err := parseWikiSync(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := ensureRegistered(wiki, dir, decl)
+	res, err := ensureRegistered(wiki, dir, &wikiSyncDecl{Paths: []string{"."}, Intro: "平铺知识目录"})
 	if err != nil {
 		t.Fatal(err)
 	}
