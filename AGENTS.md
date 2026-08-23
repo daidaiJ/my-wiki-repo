@@ -1,64 +1,75 @@
 # my-wiki 规约（Agent 必读）
 
 本仓库是跨项目知识库的统一入口 + Hugo 博客发布工具，CLI 二进制为 `wiki`（本仓库 `go build` 产物）。
-符号链接目录 `projects/` 不入版本库（机器本地），注册表数据源藏在 `index.md` 顶部的 `wiki-registry` 注释块里，**index.md 由工具生成，不要手改**。
+`projects/` 下是各项目知识目录的符号链接/junction（机器本地，不入库）；`index.md` 是工具生成的项目索引（数据源在顶部隐藏 JSON 块，**不要手改**）。
 
-## 一、wiki-sync 协议（项目接入规约）
+## 三条相互独立的流程（互不阻塞）
 
-任何项目要把自己的 wiki/issue/调研类文档纳入统一管理，在其 `AGENTS.md` 中加一段机器可读的 HTML 注释：
+| 流程 | 触发方 | 机制 |
+|---|---|---|
+| ① 同步 | **全自动**（Stop hook） | 每轮回复结束执行 `wiki check`：有声明块则幂等维护链接、把 AGENTS.md 里最新元数据同步进注册表 |
+| ② 元数据 | agent，**任意时间** | 改项目 AGENTS.md 的 wiki-sync 块（或跑 `wiki init --intro/--summary`），下轮 hook 自动生效 |
+| ③ 发布 | agent，主动 | `wiki blog new` → `wiki blog publish` |
+
+## 一、wiki-sync 声明块（接入规约）
+
+项目在自己的 `AGENTS.md` 里维护一块机器可读声明（`wiki init` 可代写，也可手写后由 hook 自动接入）：
 
 ```markdown
 <!-- wiki-sync
 {
   "paths": ["wiki", "docs/research"],
-  "intro": "一句话项目介绍，写进 index.md"
+  "intro": "一句话项目介绍",
+  "summary": "几句话项目摘要：这个项目做什么、核心设计是什么"
 }
 -->
 ```
 
-- `paths`：相对项目根的目录，多个都行，每个目录会在 `my-wiki/projects/<项目名>/` 下建一个符号链接
-- `intro`：项目介绍，渲染进 index.md 表格
-
-然后执行一次 `wiki register <项目绝对路径>` 即完成接入。链接是实时视图，源文档改了 my-wiki 里立刻可见，**不存在同步动作**。
+- `paths`：相对项目根的知识目录。**规约要求：每个接入目录里必须有 `README.md` 索引该目录下的其他文档，由 agent 维护**（工具会在缺失时告警）
+- `intro`/`summary`：项目介绍与摘要，允许先接入后补，agent 找到机会更新即可（`wiki init <目录> --intro "..." --summary "..."`，paths 省略则保留）
 
 ## 二、知识库命令
 
 ```
-wiki register [dir]     # 解析 AGENTS.md 的 wiki-sync 块，建链接 + 更新 index.md（dir 缺省为 cwd）
-wiki list               # 列出已注册项目
-wiki sync [--fix]       # 检查链接健康度；--fix 重建失效链接；目标目录已删除的报 dead
-wiki unlink <项目名>     # 移除注册与链接
+wiki init [目录] --paths <目录列表> [--intro ...] [--summary ...]   # agent 接入/更新入口
+wiki register [目录]        # 等价于声明块已存在时的 init（一般直接用 init）
+wiki list                   # 已注册项目 + 健康度 + README 缺失告警
+wiki sync [--fix]           # 链接健康检查/修复
+wiki unlink <项目名>         # 移除注册与链接
+wiki check                  # Stop hook 入口（幂等同步；无声明块则静默，一般不手动跑）
 ```
 
-Windows 上优先建符号链接，无权限时自动降级为 junction，行为一致。
+Windows 上优先符号链接，无权限自动降级 junction，行为一致。
 
-## 三、博客发布流水线（Agent 工作流）
+## 三、全局查看（路径规格：`项目/链接/相对路径`）
 
-目标仓库 `D:\note\daidaiJ.github.io`（站点在 `pandawo/`，文章在 `pandawo/content/post/`），push 到 main 后 GitHub Actions 自动构建部署，**发布 = push 成功**。
-
-写博客的标准流程：
-
-1. **先查已有分类**：`wiki blog list`（或 `--json`），categories/tags 按使用次数排序，**优先复用已有类别**，不要新造同义类别（历史上出现过 ai/AI 并存的碎片化）
-2. **写正文**：遵循 `tech-blog` skill 的文风规范（第一人称学习笔记、代码优先、ASCII 图、个人评注用 blockquote）
-3. **创建文章**：
-
-```bash
-wiki blog new \
-  --title "文章标题" \
-  --slug english-kebab-case \
-  --categories "技术笔记,AI" \
-  --tags "tag1,tag2" \
-  --name file_name \
-  --file body.md          # 或 --body "..." 或 --stdin
+```
+wiki ls                     # 列已接入项目
+wiki ls <项目>[/<子路径>]    # 列目录
+wiki tree [<项目>] [--depth N]
+wiki grep <模式> [<子路径>] [--fixed]   # 输出 `项目/链接/文件:行号: 内容`，可直接喂给 wiki cat
+wiki cat <项目/.../文件>
 ```
 
-front matter 的确定性部分全部自动生成（date/lastmod/draft/toc/hidden/weight/musicid/qqmusic/image），slug 与文件名查重，冲突直接报错。先加 `--dry-run` 预览再正式执行。
+跨项目调研先 `wiki grep` 定位再 `wiki cat` 查看，不必知道各项目绝对路径。
 
-4. **提交推送**：`wiki blog publish <文件名>`（或 `blog new --publish` 一步到位）。
-   **push 失败不重试**：工具会把 git 原始错误透传出来并以非 0 退出。此时应如实告知用户「文件已本地提交，GitHub 网络问题请稍后在 D:\note\daidaiJ.github.io 手动执行 git push」。
+## 四、博客发布流水线（agent 工作流）
 
-## 四、分工边界
+目标仓库默认 `D:\note\daidaiJ.github.io`（文章在 `pandawo/content/post/`），**可用 `wiki config set blogRepo <路径>` 配置**；push 到 main 后 GitHub Actions 自动部署，发布 = push 成功。
 
-- `tech-blog` skill：管正文文风
-- `wiki` CLI：管确定性元数据生成、查重、提交推送
-- 不要用 Edit/Write 工具直接去博客仓库手写文章文件——绕过查重和格式统一，禁止
+1. **先查已有分类**：`wiki blog list`（只列 categories/tags 两字段，按使用次数降序）——**优先复用高频类别**，不要新造同义类别（历史上有 ai/AI、go/golang 并存的碎片化）。数据来自懒维护的本地记录 `blog.json`（首次自动扫描引导、之后增量对账、publish 成功即更新）
+2. **写正文**：遵循 `tech-blog` skill 的文风规范
+3. **创建**：`wiki blog new --title --slug --categories --tags [--name] (--file|--body|--stdin) [--dry-run]`。front matter 确定性部分全自动；title/slug 重复罕见，撞上会在本步直接报错（apply 时校验）
+4. **发布**：`wiki blog publish <name>`。**push 失败不重试**：原始 git 错误透传 + 非 0 退出，如实告知用户「文件已本地提交，请在 D:\note\daidaiJ.github.io 手动 git push」
+
+## 五、分工与边界
+
+- `tech-blog` skill：管正文文风；`wiki` CLI：管元数据、查重、发布
+- 禁止直接往博客仓库手写文章文件（绕过查重与格式统一）
+- 禁止手改 `index.md` / `blog.json`（工具生成的数据文件，用命令维护）
+
+## 六、Stop hook 机制说明
+
+用户级配置 `~/.zcode/cli/config.json` 的 `hooks.events.Stop` 注册了 `wiki check`（process 类型直调 wiki.exe）。
+stdout 恒空（hook 对 stdout 做严格 JSON 校验），日志全走 stderr，任何失败都不阻塞会话。
+没有声明块的项目完全无感；这也是元数据「事后补充」能自动生效的原因。

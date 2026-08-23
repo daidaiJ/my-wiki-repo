@@ -19,32 +19,29 @@ func newTestPostDir(t *testing.T, seedPosts map[string]string) string {
 	return dir
 }
 
-func TestCollectAndEnrich(t *testing.T) {
+func TestCollectPostsToleratesBadFM(t *testing.T) {
 	dir := newTestPostDir(t, map[string]string{
-		"post_a.md":    "---\ntitle: \"文章A\"\nslug: post-a\ncategories:\n    - 笔记\ntags :\n    - golang\n---\n正文A\n",
-		"post_b.md":    "---\ntitle: \"文章B\"\nslug: post-b\ncategories: [\"笔记\", \"AI\"]\ntags: [\"golang\", \"ai\"]\n---\n正文B\n",
-		"post_c.md":    "---\ntitle: \"文章C\"\nslug: post-c\ncategories:\n    - AI\ntags: [\"ai\"]\n---\n正文C\n",
-		"notapost.txt": "忽略我",
+		"good.md":    "---\ntitle: \"A\"\nslug: a\ncategories:\n    - 笔记\ntags :\n    - golang\n---\n正文A\n",
+		"bad.md":     "没有 front matter",
+		"notapost":   "无扩展名忽略",
+		"notpost.md": "---\ntitle: \"B\"\nslug: b\ncategories: [\"笔记\"]\ntags: [\"golang\"]\n---\n正文B\n",
 	})
 	posts, err := collectPosts(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(posts) != 3 {
-		t.Fatalf("应收集 3 篇，得到 %d: %+v", len(posts), posts)
+		t.Fatalf("应收集 3 篇（含坏 FM 的 bad.md 降级）: %+v", posts)
 	}
-	idx := buildBlogIndex(posts)
-	if err := enrichTaxonomy(idx, dir, posts); err != nil {
-		t.Fatal(err)
+	byFile := map[string]PostInfo{}
+	for _, p := range posts {
+		byFile[p.File] = p
 	}
-	if idx.Categories["笔记"] != 2 || idx.Categories["AI"] != 2 {
-		t.Errorf("categories 计数错误: %+v", idx.Categories)
+	if byFile["bad.md"].Title != "bad.md" {
+		t.Errorf("坏 FM 应回退文件名: %+v", byFile["bad.md"])
 	}
-	if idx.Tags["golang"] != 2 || idx.Tags["ai"] != 2 {
-		t.Errorf("tags 计数错误: %+v", idx.Tags)
-	}
-	if len(idx.Slugs) != 3 || idx.Slugs[0] != "post-a" {
-		t.Errorf("slugs = %v", idx.Slugs)
+	if byFile["notpost.md"].Slug != "b" {
+		t.Errorf("notpost.md = %+v", byFile["notpost.md"])
 	}
 }
 
@@ -92,7 +89,7 @@ func TestCreatePostAndConflict(t *testing.T) {
 		t.Errorf("生成文件内容异常:\n%s", s)
 	}
 
-	// slug 冲突
+	// slug 冲突（apply 时报错）
 	if _, err := createPost(t, dir, NewPostMeta{Slug: "existing-post"}, "x", "another"); err != errSlugConflict {
 		t.Errorf("slug 冲突未检出: %v", err)
 	}
@@ -123,12 +120,15 @@ func TestSlugAndNameValidation(t *testing.T) {
 	}
 }
 
-// TestParseRealPosts 在真实博客目录存在时，用线上 51 篇文章验证解析器。
+// TestParseRealPosts 在真实博客目录存在时，用线上文章验证解析与记录引导。
 func TestParseRealPosts(t *testing.T) {
 	dir := blogPostsDir()
 	if _, err := os.Stat(dir); err != nil {
 		t.Skipf("真实博客目录不存在，跳过: %v", err)
 	}
+	wiki := newTestWiki(t) // 记录写到临时根，不污染真实 wiki 根
+	t.Setenv("WIKI_ROOT", wiki)
+
 	posts, err := collectPosts(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -145,15 +145,22 @@ func TestParseRealPosts(t *testing.T) {
 	if bad > 2 {
 		t.Errorf("%d 篇文章标题解析异常（容忍少量历史遗留）", bad)
 	}
-	idx := buildBlogIndex(posts)
-	if len(idx.Slugs) == 0 {
-		t.Error("未解析到任何 slug")
-	}
-	if err := enrichTaxonomy(idx, dir, posts); err != nil {
+
+	rec, err := reconcileRecord(wiki, dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if idx.Categories["笔记"] < 5 {
-		t.Errorf("categories 计数异常: %+v", idx.Categories)
+	if len(rec.Posts) != len(posts) {
+		t.Errorf("记录引导数 %d != 实际 %d", len(rec.Posts), len(posts))
+	}
+	cats := aggregate(rec, func(e BlogRecEntry) []string { return e.Categories })
+	if cats["笔记"] < 5 {
+		t.Errorf("categories 聚合异常: %+v", cats)
+	}
+	// 二次对账应幂等
+	rec2, _ := reconcileRecord(wiki, dir)
+	if len(rec2.Posts) != len(rec.Posts) {
+		t.Errorf("二次对账不幂等: %d vs %d", len(rec2.Posts), len(rec.Posts))
 	}
 }
 

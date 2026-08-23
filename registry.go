@@ -23,12 +23,15 @@ func wikiRoot() string {
 	return defaultWikiRoot
 }
 
-// ProjectEntry 登记一个已接入项目：名字、根目录、介绍、接入的相对路径。
+// ProjectEntry 登记一个已接入项目：名字、根目录、介绍、摘要、接入的相对路径。
+// intro/summary 由 agent 在任意时间补充（改项目 AGENTS.md 的 wiki-sync 块即可，
+// Stop hook 会自动把新值同步进注册表）。
 type ProjectEntry struct {
-	Name  string   `json:"name"`
-	Root  string   `json:"root"`
-	Intro string   `json:"intro"`
-	Paths []string `json:"paths"`
+	Name    string   `json:"name"`
+	Root    string   `json:"root"`
+	Intro   string   `json:"intro"`
+	Summary string   `json:"summary,omitempty"`
+	Paths   []string `json:"paths"`
 }
 
 type Registry struct {
@@ -78,10 +81,22 @@ func saveRegistry(root string, reg *Registry) error {
 	b.Write(data)
 	b.WriteString("\n-->\n\n")
 	b.WriteString("# 项目索引\n\n")
-	b.WriteString("> 本文件由 `wiki register/unlink/sync` 自动生成维护，不要手改。\n\n")
+	b.WriteString("> 本文件由 wiki 工具自动生成维护，不要手改。\n\n")
 	b.WriteString("| 项目 | 目录 | 介绍 | 接入路径 |\n|---|---|---|---|\n")
 	for _, p := range reg.Projects {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", p.Name, p.Root, p.Intro, strings.Join(p.Paths, ", "))
+		intro := p.Intro
+		if intro == "" {
+			intro = "（待补充：wiki init --intro）"
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", p.Name, p.Root, intro, strings.Join(p.Paths, ", "))
+	}
+	b.WriteString("\n## 项目摘要（agent 维护，wiki init --summary 可更新）\n\n")
+	for _, p := range reg.Projects {
+		summary := p.Summary
+		if summary == "" {
+			summary = "（待补充：wiki init --summary）"
+		}
+		fmt.Fprintf(&b, "### %s\n\n%s\n\n", p.Name, summary)
 	}
 	return os.WriteFile(registryPath(root), []byte(b.String()), 0o644)
 }
@@ -128,32 +143,29 @@ func linkPathFor(root string, e ProjectEntry, relPath string, taken map[string]b
 // createLink 建立或重建一条链接；链接位置已有真实目录时拒绝动手。
 func createLink(target, link string) error {
 	if fi, err := os.Lstat(link); err == nil {
-		if fi.Mode()&os.ModeSymlink == 0 && !fi.IsDir() {
-			return fmt.Errorf("%s 已存在且不是链接，请手动处理", link)
-		}
 		if fi.Mode()&os.ModeSymlink != 0 {
 			if err := os.Remove(link); err != nil {
 				return fmt.Errorf("移除旧链接 %s 失败: %w", link, err)
 			}
-		} else if fi.IsDir() {
-			// junction 在 Lstat 下也表现为 symlink，走到这里说明是真实目录
-			return fmt.Errorf("%s 已存在真实目录（非链接），请手动处理", link)
+		} else {
+			return fmt.Errorf("%s 已存在且不是链接，请手动处理", link)
 		}
 	}
 	return makeLink(target, link)
 }
 
-// --- wiki-sync 块解析 ---
+// --- wiki-sync 声明块 ---
 
 type wikiSyncDecl struct {
-	Paths []string `json:"paths"`
-	Intro string   `json:"intro"`
+	Paths   []string `json:"paths"`
+	Intro   string   `json:"intro"`
+	Summary string   `json:"summary,omitempty"`
 }
 
 func parseWikiSync(projectRoot string) (*wikiSyncDecl, error) {
 	data, err := os.ReadFile(filepath.Join(projectRoot, "AGENTS.md"))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%s 下没有 AGENTS.md，请先按规约添加 wiki-sync 块", projectRoot)
+		return nil, fmt.Errorf("%s 下没有 AGENTS.md", projectRoot)
 	}
 	if err != nil {
 		return nil, err
@@ -172,12 +184,125 @@ func parseWikiSync(projectRoot string) (*wikiSyncDecl, error) {
 	return &decl, nil
 }
 
+// validatePaths 校验接入路径真实存在且是目录。
+func validatePaths(abs string, paths []string) error {
+	for _, p := range paths {
+		t := filepath.Join(abs, filepath.FromSlash(p))
+		if fi, err := os.Stat(t); err != nil || !fi.IsDir() {
+			return fmt.Errorf("接入路径不存在或不是目录: %s", t)
+		}
+	}
+	return nil
+}
+
+// readmeWarnings 规约要求：每个接入目录用 README.md 索引其中的文档，缺失则告警。
+func readmeWarnings(root string, e ProjectEntry) []string {
+	var ws []string
+	taken := map[string]bool{}
+	for _, rel := range e.Paths {
+		dir := filepath.Join(e.Root, filepath.FromSlash(rel))
+		if _, err := os.Stat(filepath.Join(dir, "README.md")); err != nil {
+			ws = append(ws, fmt.Sprintf("%s: 接入目录 %s 缺少 README.md（规约要求其索引目录内文档，请 agent 维护）", e.Name, filepath.Join(e.Root, rel)))
+		}
+		_ = linkPathFor(root, e, rel, taken) // 消耗 taken，保持与链接命名一致
+	}
+	return ws
+}
+
+// EnsureResult 描述一次接入操作的幂等结果。
+type EnsureResult struct {
+	Entry           ProjectEntry
+	RegistryChanged bool     // 注册表内容有变（新项目、元数据更新、路径变化）
+	LinksRepaired   int      // 重建/修复的链接数
+	ReadmeWarnings  []string // 接入目录缺 README 索引
+}
+
+// ensureRegistered 幂等地把项目接入知识库：校验路径、跳过健康链接、修复失效链接、
+// upsert 注册表（无变化则不写盘）。供 register/init/check（Stop hook）共用。
+func ensureRegistered(root, abs string, decl *wikiSyncDecl) (*EnsureResult, error) {
+	if err := validatePaths(abs, decl.Paths); err != nil {
+		return nil, err
+	}
+	res := &EnsureResult{}
+	res.Entry = ProjectEntry{
+		Name:    badNameChars.ReplaceAllString(filepath.Base(abs), "_"),
+		Root:    abs,
+		Intro:   decl.Intro,
+		Summary: decl.Summary,
+		Paths:   decl.Paths,
+	}
+
+	reg, err := loadRegistry(root)
+	if err != nil {
+		return nil, err
+	}
+	old, existed := findEntry(reg, res.Entry.Name)
+	if !existed || !sameEntry(old, res.Entry) {
+		res.RegistryChanged = true
+	}
+
+	taken := map[string]bool{}
+	if err := os.MkdirAll(filepath.Join(root, "projects", res.Entry.Name), 0o755); err != nil {
+		return nil, err
+	}
+	for _, p := range res.Entry.Paths {
+		target, _ := filepath.Abs(filepath.Join(abs, filepath.FromSlash(p)))
+		link := linkPathFor(root, res.Entry, p, taken)
+		if resolved, err := filepath.EvalSymlinks(link); err == nil && samePath(resolved, target) {
+			continue // 链接已健康，不动它
+		}
+		if err := createLink(target, link); err != nil {
+			return nil, err
+		}
+		res.LinksRepaired++
+	}
+
+	if res.RegistryChanged {
+		if existed {
+			for i := range reg.Projects {
+				if reg.Projects[i].Name == res.Entry.Name {
+					reg.Projects[i] = res.Entry
+				}
+			}
+		} else {
+			reg.Projects = append(reg.Projects, res.Entry)
+		}
+		if err := saveRegistry(root, reg); err != nil {
+			return nil, err
+		}
+	}
+	res.ReadmeWarnings = readmeWarnings(root, res.Entry)
+	return res, nil
+}
+
+func findEntry(reg *Registry, name string) (ProjectEntry, bool) {
+	for _, p := range reg.Projects {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return ProjectEntry{}, false
+}
+
+func sameEntry(a, b ProjectEntry) bool {
+	if a.Name != b.Name || a.Root != b.Root || a.Intro != b.Intro || a.Summary != b.Summary ||
+		len(a.Paths) != len(b.Paths) {
+		return false
+	}
+	for i := range a.Paths {
+		if a.Paths[i] != b.Paths[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // --- 子命令 ---
 
 func cmdRegister(args []string) error {
 	fs := flag.NewFlagSet("register", flag.ContinueOnError)
 	dir := fs.String("dir", "", "项目根目录（可省略，改用位置参数或当前目录）")
-	if err := fs.Parse(args); err != nil {
+	if err := parseWithPositionals(fs, args); err != nil {
 		return err
 	}
 	root := wikiRoot()
@@ -198,53 +323,19 @@ func cmdRegister(args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// 校验每个接入路径真实存在
-	var absPaths []string
-	for _, p := range decl.Paths {
-		t := filepath.Join(abs, filepath.FromSlash(p))
-		if fi, err := os.Stat(t); err != nil || !fi.IsDir() {
-			return fmt.Errorf("接入路径不存在或不是目录: %s", t)
-		}
-		absPaths = append(absPaths, p)
-	}
-
-	name := badNameChars.ReplaceAllString(filepath.Base(abs), "_")
-	reg, err := loadRegistry(root)
+	res, err := ensureRegistered(root, abs, decl)
 	if err != nil {
 		return err
 	}
-	entry := ProjectEntry{Name: name, Root: abs, Intro: decl.Intro, Paths: absPaths}
-
-	taken := map[string]bool{}
-	if err := os.MkdirAll(filepath.Join(root, "projects", name), 0o755); err != nil {
-		return err
-	}
-	for _, p := range absPaths {
-		target, _ := filepath.Abs(filepath.Join(abs, filepath.FromSlash(p)))
-		link := linkPathFor(root, entry, p, taken)
-		if err := createLink(target, link); err != nil {
-			return err
-		}
-		fmt.Printf("链接 %s -> %s\n", link, target)
-	}
-
-	// upsert
-	replaced := false
-	for i := range reg.Projects {
-		if reg.Projects[i].Name == name {
-			reg.Projects[i] = entry
-			replaced = true
-		}
-	}
-	if !replaced {
-		reg.Projects = append(reg.Projects, entry)
-	}
-	if err := saveRegistry(root, reg); err != nil {
-		return err
-	}
-	fmt.Printf("已注册项目 %s（%s），共 %d 个接入路径\n", name, abs, len(absPaths))
+	fmt.Printf("已注册项目 %s（%s），接入路径 %d 个，本次修复链接 %d 个\n", res.Entry.Name, abs, len(res.Entry.Paths), res.LinksRepaired)
+	printWarnings(res.ReadmeWarnings)
 	return nil
+}
+
+func printWarnings(ws []string) {
+	for _, w := range ws {
+		fmt.Fprintln(os.Stderr, "⚠ "+w)
+	}
 }
 
 func cmdList(args []string) error {
@@ -254,12 +345,13 @@ func cmdList(args []string) error {
 		return err
 	}
 	if len(reg.Projects) == 0 {
-		fmt.Println("尚未注册任何项目。在目标项目 AGENTS.md 加 wiki-sync 块后执行 wiki register。")
+		fmt.Println("尚未注册任何项目。agent 执行 wiki init --paths <目录> 即可接入。")
 		return nil
 	}
-	fmt.Printf("%-20s %-6s %s\n", "项目", "状态", "目录")
+	fmt.Printf("%-20s %-6s %s\n", "项目", "状态", "介绍")
+	var allWarnings []string
 	for _, p := range reg.Projects {
-		status, detail := "正常", ""
+		status, extra := "正常", ""
 		dead := 0
 		taken := map[string]bool{}
 		for _, rel := range p.Paths {
@@ -273,12 +365,18 @@ func cmdList(args []string) error {
 		}
 		switch {
 		case !dirExists(p.Root):
-			status, detail = "dead", "项目目录已不存在"
+			status, extra = "dead", "项目目录已不存在"
 		case dead > 0:
-			status, detail = "失效", fmt.Sprintf("%d 个链接异常（wiki sync --fix 修复）", dead)
+			status, extra = "失效", fmt.Sprintf("%d 个链接异常（wiki sync --fix 修复）", dead)
 		}
-		fmt.Printf("%-20s %-6s %s %s\n", p.Name, status, p.Root, detail)
+		intro := p.Intro
+		if intro == "" {
+			intro = "（介绍待补充）"
+		}
+		fmt.Printf("%-20s %-6s %s %s\n", p.Name, status, intro, extra)
+		allWarnings = append(allWarnings, readmeWarnings(root, p)...)
 	}
+	printWarnings(allWarnings)
 	return nil
 }
 

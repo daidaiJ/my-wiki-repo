@@ -27,12 +27,18 @@ func blogRepo() string {
 	if v := os.Getenv("WIKI_BLOG_REPO"); v != "" {
 		return v
 	}
+	if cfg := loadWikiConfig(wikiRoot()); cfg.BlogRepo != "" {
+		return cfg.BlogRepo
+	}
 	return defaultBlogRepo
 }
 
 func blogPostsDir() string {
 	if v := os.Getenv("WIKI_BLOG_POSTS"); v != "" {
 		return v
+	}
+	if cfg := loadWikiConfig(wikiRoot()); cfg.BlogPosts != "" {
+		return cfg.BlogPosts
 	}
 	return filepath.Join(blogRepo(), postsRelDir)
 }
@@ -98,20 +104,12 @@ func strList(v any) []string {
 	}
 }
 
-// --- 文章收集 ---
+// --- 文章收集（blog new 的 apply 时查重用） ---
 
 type PostInfo struct {
 	File  string `json:"file"`
 	Title string `json:"title"`
 	Slug  string `json:"slug"`
-}
-
-type BlogIndex struct {
-	Total      int            `json:"total"`
-	Categories map[string]int `json:"categories"`
-	Tags       map[string]int `json:"tags"`
-	Slugs      []string       `json:"slugs"`
-	Posts      []PostInfo     `json:"posts"`
 }
 
 func collectPosts(postDir string) ([]PostInfo, error) {
@@ -140,60 +138,6 @@ func collectPosts(postDir string) ([]PostInfo, error) {
 	return posts, nil
 }
 
-func buildBlogIndex(posts []PostInfo) *BlogIndex {
-	idx := &BlogIndex{
-		Total:      len(posts),
-		Categories: map[string]int{},
-		Tags:       map[string]int{},
-		Posts:      posts,
-	}
-	slugSeen := map[string]bool{}
-	for _, p := range posts {
-		if p.Slug != "" && !slugSeen[p.Slug] {
-			slugSeen[p.Slug] = true
-			idx.Slugs = append(idx.Slugs, p.Slug)
-		}
-	}
-	sort.Strings(idx.Slugs)
-	return idx
-}
-
-// enrichTaxonomy 把每篇文章的 categories/tags 计入 idx。
-// 需要再次读文件（collectPosts 的 PostInfo 不含分类），抽出来便于测试。
-func enrichTaxonomy(idx *BlogIndex, postDir string, posts []PostInfo) error {
-	for _, p := range posts {
-		data, err := os.ReadFile(filepath.Join(postDir, p.File))
-		if err != nil {
-			return err
-		}
-		fm, err := parseFrontMatter(string(data))
-		if err != nil {
-			continue
-		}
-		for _, c := range fm.Categories {
-			idx.Categories[c]++
-		}
-		for _, t := range fm.Tags {
-			idx.Tags[t]++
-		}
-	}
-	return nil
-}
-
-func sortedByCount(m map[string]int) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if m[out[i]] != m[out[j]] {
-			return m[out[i]] > m[out[j]]
-		}
-		return out[i] < out[j]
-	})
-	return out
-}
-
 // --- 子命令 ---
 
 func cmdBlog(args []string) error {
@@ -212,37 +156,39 @@ func cmdBlog(args []string) error {
 	}
 }
 
+// cmdBlogList 只列出 categories/tags 两字段（按使用次数降序，供 agent 复用已有类别）。
+// 数据来自懒维护的本地发布记录 blog.json，首次调用自动扫描 Hugo 目录引导。
 func cmdBlogList(args []string) error {
 	fs := flag.NewFlagSet("blog list", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "输出 JSON（agent 用）")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	postDir := blogPostsDir()
-	posts, err := collectPosts(postDir)
+	rec, err := reconcileRecord(wikiRoot(), blogPostsDir())
 	if err != nil {
 		return err
 	}
-	idx := buildBlogIndex(posts)
-	if err := enrichTaxonomy(idx, postDir, posts); err != nil {
-		return err
-	}
+	cats := aggregate(rec, func(e BlogRecEntry) []string { return e.Categories })
+	tags := aggregate(rec, func(e BlogRecEntry) []string { return e.Tags })
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.SetEscapeHTML(false)
-		return enc.Encode(idx)
+		return enc.Encode(map[string]any{
+			"total":      len(rec.Posts),
+			"categories": cats,
+			"tags":       tags,
+		})
 	}
-	fmt.Printf("文章总数: %d（目录 %s）\n\n", idx.Total, postDir)
-	fmt.Println("categories（按使用次数降序，创建文章时优先复用）:")
-	for _, c := range sortedByCount(idx.Categories) {
-		fmt.Printf("  %-12s %d\n", c, idx.Categories[c])
+	fmt.Printf("已发布文章: %d 篇（记录 %s）\n\n", len(rec.Posts), recordPath(wikiRoot()))
+	fmt.Println("categories（按使用次数降序，创建文章时优先复用已有类别）:")
+	for _, c := range sortedByCount(cats) {
+		fmt.Printf("  %-16s %d\n", c, cats[c])
 	}
 	fmt.Println("\ntags（按使用次数降序）:")
-	for _, t := range sortedByCount(idx.Tags) {
-		fmt.Printf("  %-12s %d\n", t, idx.Tags[t])
+	for _, t := range sortedByCount(tags) {
+		fmt.Printf("  %-16s %d\n", t, tags[t])
 	}
-	fmt.Printf("\nslugs（%d 个，创建前查重；permalink 为 /p/<slug>/）:\n  %s\n", len(idx.Slugs), strings.Join(idx.Slugs, ", "))
 	return nil
 }
 
@@ -420,6 +366,17 @@ func blogPublish(fileName string) error {
 			out, err, repo)
 	}
 	fmt.Printf("发布完成：%s 已推送，GitHub Actions 将自动构建部署。\n", fileName+".md")
+	// 发布成功 → 更新本地四字段记录（lazy 维护）
+	if entry, err := parsePostFile(postFile); err == nil {
+		root := wikiRoot()
+		rec, lerr := loadBlogRecord(root)
+		if lerr == nil {
+			rec.upsert(entry)
+			if serr := rec.save(root); serr == nil {
+				fmt.Printf("发布记录已更新: %s（%d 篇）\n", recordPath(root), len(rec.Posts))
+			}
+		}
+	}
 	return nil
 }
 

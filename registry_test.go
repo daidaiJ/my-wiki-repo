@@ -17,10 +17,10 @@ func newTestWiki(t *testing.T) string {
 	return root
 }
 
-// newTestProject 建一个带 wiki-sync 声明的假项目，返回其根目录。
+// newTestProject 建一个带 wiki-sync 声明的假项目（目录名即项目名），返回其根目录。
 func newTestProject(t *testing.T, name string, paths []string) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), name)
 	for _, p := range paths {
 		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(p)), 0o755); err != nil {
 			t.Fatal(err)
@@ -35,7 +35,7 @@ func newTestProject(t *testing.T, name string, paths []string) string {
 	return dir
 }
 
-func findEntry(t *testing.T, root, name string) *ProjectEntry {
+func findTestEntry(t *testing.T, root, name string) *ProjectEntry {
 	t.Helper()
 	reg, err := loadRegistry(root)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestRegisterAndUnlink(t *testing.T) {
 	if err := saveRegistry(wiki, reg); err != nil {
 		t.Fatal(err)
 	}
-	got := findEntry(t, wiki, "demoproj")
+	got := findTestEntry(t, wiki, "demoproj")
 	if got.Intro != "demoproj 的介绍" || len(got.Paths) != 2 {
 		t.Errorf("登记内容不符: %+v", got)
 	}
@@ -93,7 +93,7 @@ func TestSyncFixHealsBrokenLink(t *testing.T) {
 	}
 
 	// 只注册登记、不建链接 → sync 报失效，--fix 修复
-	got := findEntry(t, wiki, "brokenproj")
+	got := findTestEntry(t, wiki, "brokenproj")
 	if problems := syncProject(wiki, *got, false); len(problems) == 0 {
 		t.Fatal("链接缺失时 sync 应报问题")
 	}
