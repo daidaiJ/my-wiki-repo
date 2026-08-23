@@ -137,7 +137,12 @@ func linkName(relPath string, taken map[string]bool) string {
 }
 
 func linkPathFor(root string, e ProjectEntry, relPath string, taken map[string]bool) string {
-	return filepath.Join(root, "projects", e.Name, linkName(relPath, taken))
+	name := relPath
+	if relPath == "." || relPath == "" {
+		// 平铺知识目录：项目根本身接入，链接名用项目名
+		name = e.Name
+	}
+	return filepath.Join(root, "projects", e.Name, linkName(name, taken))
 }
 
 // createLink 建立或重建一条链接；链接位置已有真实目录时拒绝动手。

@@ -136,6 +136,37 @@ func TestLinkNameCollision(t *testing.T) {
 	}
 }
 
+func TestFlatKnowledgeDirRootPath(t *testing.T) {
+	wiki := newTestWiki(t)
+	// 项目根本身就是知识目录（声明 "."）
+	dir := filepath.Join(t.TempDir(), "flatdocs")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "note.md"), []byte("内容\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# AGENTS\n"), 0o644)
+
+	if err := upsertWikiSyncBlock(dir, &wikiSyncDecl{Paths: []string{"."}, Intro: "平铺知识目录"}); err != nil {
+		t.Fatal(err)
+	}
+	decl, err := parseWikiSync(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ensureRegistered(wiki, dir, decl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(wiki, "projects", "flatdocs", "flatdocs")
+	if resolved, err := filepath.EvalSymlinks(link); err != nil {
+		t.Fatalf("根路径链接未建立: %v", err)
+	} else if !samePath(resolved, dir) {
+		t.Errorf("链接指向 %s，期望 %s", resolved, dir)
+	}
+	// 根目录的 README 检查同样生效
+	if len(res.ReadmeWarnings) != 1 {
+		t.Errorf("根目录缺 README 应有告警: %v", res.ReadmeWarnings)
+	}
+}
+
 func TestParseWikiSync(t *testing.T) {
 	proj := newTestProject(t, "p", []string{"wiki", "docs/research"})
 	decl, err := parseWikiSync(proj)
