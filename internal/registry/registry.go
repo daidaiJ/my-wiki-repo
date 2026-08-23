@@ -31,7 +31,7 @@ func ProjectsRoot() string { return filepath.Join(config.WikiRoot(), ProjectsRoo
 
 // ProjectEntry 登记一个已接入项目：名字、根目录、介绍、摘要、接入的相对路径。
 // intro/summary 由 agent 在任意时间补充（wiki init --intro/--summary），
-// Stop hook 每轮把最新值同步进注册表。
+// 会话退出 hook 把最新值同步进注册表。
 type ProjectEntry struct {
 	Name    string   `json:"name"`
 	Root    string   `json:"root"`
@@ -232,7 +232,7 @@ type EnsureResult struct {
 
 // EnsureRegistered 幂等地把项目接入知识库：校验路径、跳过健康链接、修复失效链接、
 // 清理声明收缩后的孤儿链接、upsert 注册表（无变化则不写盘）。
-// 供 init/register/check（Stop hook）共用。
+// 供 init/register/check（会话退出 hook）共用。
 func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, error) {
 	if err := validatePaths(abs, decl.Paths); err != nil {
 		return nil, err
@@ -313,7 +313,7 @@ func findEntry(reg *Registry, name string) (ProjectEntry, bool) {
 	return ProjectEntry{}, false
 }
 
-// findEntryByRoot 按项目根目录精确匹配注册项（Stop hook 据此定位当前项目）。
+// findEntryByRoot 按项目根目录精确匹配注册项（会话退出 hook 据此定位当前项目）。
 func findEntryByRoot(reg *Registry, abs string) (ProjectEntry, bool) {
 	for _, p := range reg.Projects {
 		if cli.SamePath(p.Root, abs) {

@@ -78,7 +78,7 @@ func initByHelper(root, proj, paths, intro, summary string) (*EnsureResult, erro
 	return EnsureRegistered(root, proj, decl)
 }
 
-// --- wiki check（Stop hook 自动同步：注册表优先，AGENTS.md 块仅 opt-in 回退） ---
+// --- wiki check（会话退出 hook 自动同步：注册表优先，AGENTS.md 块仅 opt-in 回退） ---
 
 func TestCheckAutoSyncByRegistry(t *testing.T) {
 	wiki := newTestWiki(t)

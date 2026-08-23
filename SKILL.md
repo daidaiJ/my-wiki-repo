@@ -18,7 +18,7 @@ wiki config            # 检查 wikiRoot / knowledgeDirs / blogRepo 是否符合
 wiki config set blogRepo <Hugo 仓库绝对路径>
 #    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
 wiki config set hugoBin <hugo 可执行文件路径>
-# 4. Stop hook 自动同步（~/.qwen/settings.json 的 hooks.Stop 或 ~/.zcode/cli/config.json 的 hooks.events.Stop，
+# 4. 会话退出 hook 自动同步（~/.qwen/settings.json 的 hooks.SessionEnd 或 ~/.zcode/cli/config.json 的 hooks.events.Stop，
 #    command/process 类型直调 wiki.exe check，stdout 恒空契约——详见工具仓库 README 教程）
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
 wiki inject             # 标记锚定：追加/原位替换/幂等
@@ -48,9 +48,11 @@ wiki tree <项目> --depth 2
 
 **维护**：`wiki list`（健康度）/ `wiki sync [--fix]`（修链接）/ `wiki unlink <项目>`。
 
-Stop hook 每轮自动完成：链接补建与失效修复、声明收缩后的孤儿清理、注册表元数据同步——这些**无需手动做**。
+会话退出时自动完成：链接补建与失效修复、声明收缩后的孤儿清理、注册表元数据同步——这些**无需手动做**。
 
 ## 三、发布博客（可选；仅当用户明确要发布时）
+
+发布前先提示用户在 Obsidian 校对（知识库 = Obsidian 仓库根，`projects/` 符号链接可见；接入见工具仓库 `docs/obsidian.md`）。
 
 ```bash
 wiki blog list                          # 只列 categories/tags（按使用次数降序），优先复用已有类别防碎片化

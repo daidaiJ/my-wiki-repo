@@ -30,7 +30,7 @@ func guideSection() string {
 	b.WriteString("- 接入项目 / 补充项目介绍与摘要（任意时间）：`wiki init <项目路径>`（省略 --paths 自动发现 wiki/issues 目录）；事后补充 `wiki init <项目路径> --intro \"…\" --summary \"…\"`。声明只存 wiki 本地注册表，项目仓库零足迹、不随项目 push 外泄；勿接入 `docs/` 等官方文档同名目录\n")
 	b.WriteString("- 全局检索（路径规格：项目/链接/文件）：`wiki ls` / `wiki grep <模式>`（输出可直接喂给 `wiki cat <项目/链接/文件>`）/ `wiki tree <项目>`\n")
 	b.WriteString("- 发博客：先 `wiki blog list`（只列 categories/tags，优先复用已有类别）→ `wiki blog new …` → `wiki blog publish <name>`；push 网络失败不重试，转告用户手动 push\n")
-	b.WriteString("- 知识目录链接同步由 Stop hook 全自动（wiki check），无需人工干预；每个接入目录须有 README.md 索引（agent 维护）\n")
+	b.WriteString("- 知识目录链接同步由会话退出 hook（SessionEnd，/quit 触发）全自动（wiki check），无需人工干预；每个接入目录须有 README.md 索引（agent 维护）\n")
 	b.WriteString(guideEndMarker)
 	return b.String()
 }

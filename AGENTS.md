@@ -7,9 +7,21 @@
 
 | 流程 | 触发方 | 机制 |
 |---|---|---|
-| ① 同步 | **全自动**（Stop hook） | 每轮回复结束执行 `wiki check`：有声明块则幂等维护链接、把 AGENTS.md 里最新元数据同步进注册表 |
+| ① 同步 | **全自动**（会话退出 hook） | 会话退出（/quit）时执行 `wiki check`：有声明块则幂等维护链接、把 AGENTS.md 里最新元数据同步进注册表 |
 | ② 元数据 | agent，**任意时间** | 改项目 AGENTS.md 的 wiki-sync 块（或跑 `wiki init --intro/--summary`），下轮 hook 自动生效 |
 | ③ 发布 | agent，主动 | `wiki blog new` → `wiki blog publish` |
+
+## 知识工作流（agent 视角）
+
+三段流水线，agent 只负责第一和第三段，中间是人工关卡：
+
+| 阶段 | 执行者 | 产出 |
+|---|---|---|
+| ① Agent 驱动总结 | agent | 项目 wiki/ 笔记（tech-blog 文风） |
+| ② Obsidian 查看校对 | 人 | 校对结论（agent 不跳过） |
+| ③ Hugo 发布 / git 同步 | agent | 已发布文章（blog new → publish） |
+
+知识库可同时作为 Obsidian 仓库根：`projects/` 符号链接在 Obsidian 里可见（接入见 `docs/obsidian.md`）。沉淀成博客前，先提示用户在 Obsidian 校对。
 
 ## 一、接入声明（集中式，项目仓库零足迹）
 
@@ -28,7 +40,7 @@ wiki register [目录]        # 等价于声明块已存在时的 init（一般�
 wiki list                   # 已注册项目 + 健康度 + README 缺失告警
 wiki sync [--fix]           # 链接健康检查/修复
 wiki unlink <项目名>         # 移除注册与链接
-wiki check                  # Stop hook 入口（幂等同步；无声明块则静默，一般不手动跑）
+wiki check                  # 会话退出 hook 入口（幂等同步；无声明块则静默，一般不手动跑）
 ```
 
 Windows 上优先符号链接，无权限自动降级 junction，行为一致。
@@ -60,7 +72,8 @@ wiki cat <项目/.../文件>
 - 禁止直接往博客仓库手写文章文件（绕过查重与格式统一）
 - 禁止手改 `index.md` / `blog.json`（工具生成的数据文件，用命令维护）
 
-## 六、Stop hook 与跨工具规约注入
+## 六、会话退出 hook 与跨工具规约注入
 
-- **Stop hook**：用户级 `~/.qwen/settings.json` 的 `hooks.Stop`（command 类型直调 wiki.exe）或 `~/.zcode/cli/config.json` 的 `hooks.events.Stop`（process 类型直调 wiki.exe）注册了 `wiki check`。stdout 恒空（hook 对 stdout 做严格 JSON 校验），日志全走 stderr，任何失败都不阻塞会话。没有声明块的项目完全无感；这也是元数据「事后补充」能自动生效的原因。
+- **会话退出 hook**：用户级 `~/.qwen/settings.json` 的 `hooks.SessionEnd`（command 类型直调 wiki.exe）或 `~/.zcode/cli/config.json` 的 `hooks.events.Stop`（process 类型直调 wiki.exe）注册了 `wiki check`。stdout 恒空（hook 对 stdout 做严格 JSON 校验），日志全走 stderr，任何失败都不阻塞会话。没有声明块的项目完全无感；这也是元数据「事后补充」能自动生效的原因。
+- **wiki 根解析**：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录（含标记）> exe 目录兜底。数据目录迁移后必须显式设置 `WIKI_ROOT`，否则解析兜底到 exe 目录、hook 静默失效。hook 不依赖终端环境：命令内联设置环境变量（如 `cmd /c "set WIKI_ROOT=<根>&& wiki.exe check"`）。
 - **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把 wiki 引导段注入其他 agent 工具的用户级指令文件（默认 `~/.qwen/QWEN.md`）。`wiki-guide` 特殊标记锚定：无标记段则末尾追加、有则原位替换（跨版本安全）、一致则跳过；升级规约内容后改 `internal/guide/guide.go` 重新构建并跑一次 `wiki inject` 即可全量更新。

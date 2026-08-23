@@ -9,7 +9,7 @@ import (
 	"github.com/daidaiJ/my-wiki-repo/internal/config"
 )
 
-// CmdCheck 是 Stop hook 的入口（wiki check），在每轮回复结束时被 agent 工具自动调用：
+// CmdCheck 是会话退出 hook 的入口（wiki check），在会话退出（/quit）时被 agent 工具自动调用：
 //
 //  1. 当前项目已注册（本地注册表按根目录匹配）→ 幂等同步：补建/修复知识目录链接、
 //     清理声明收缩后的孤儿链接、维护注册表

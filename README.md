@@ -13,7 +13,7 @@ my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里�
 **适合：**
 
 - 多仓库并行调研，想在一处检索所有笔记的人
-- 用 coding agent 产出文档，希望每轮会话结束时知识目录自动纳入管理的人
+- 用 coding agent 产出文档，希望会话退出时知识目录自动纳入管理的人
 - 有个人 Hugo 博客，厌倦了手写 front matter 和手动查分类的人
 
 **不适合：**
@@ -43,7 +43,14 @@ internal/view/       全局查看：ls / tree / grep / cat
 internal/blog/       博客流水线：front matter、发布记录、new/publish
 internal/guide/      规约引导段注入（wiki inject）
 AGENTS.md            agent 规约（命令契约与工作流边界）
+docs/                设计、工作流、Obsidian 接入文档（人读）
 ```
+
+## 文档
+
+- [设计文档](docs/design.md) — hook 驱动设计、数据面/控制流分离、注册表与链接实现
+- [知识工作流](docs/workflow.md) — agent 总结 → Obsidian 校对 → Hugo 发布 三段流水线
+- [Obsidian 仓库接入](docs/obsidian.md) — 先建仓库 / 迁移两条路线 SOP
 
 ## 快速开始
 
@@ -64,7 +71,7 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 ## 接入你的 Agent（自动同步）
 
-wiki 只需要 agent 做一件事：**每轮回复结束时执行一次 `wiki check`**。它被设计为对任何钩子机制都安全：
+wiki 只需要 agent 做一件事：**会话退出时（/quit）执行一次 `wiki check`**。它被设计为对任何钩子机制都安全：
 
 - stdout 恒为空（部分工具会把 stdout 当 JSON 严格校验）
 - 日志全部走 stderr，内部错误不改变退出码
@@ -87,12 +94,12 @@ wiki 只需要 agent 做一件事：**每轮回复结束时执行一次 `wiki ch
 }
 ```
 
-**Claude Code**（Stop 钩子，`~/.claude/settings.json`）：
+**Claude Code**（SessionEnd 钩子，`~/.claude/settings.json`）：
 
 ```json
 {
   "hooks": {
-    "Stop": [
+    "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki check" } ] }
     ]
   }

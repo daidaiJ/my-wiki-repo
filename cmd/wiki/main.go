@@ -1,6 +1,6 @@
 // wiki — 跨项目知识库 + Hugo 博客发布 CLI。
 //
-// 三条相互独立的流程：① 同步（Stop hook 自动执行 wiki check）
+// 三条相互独立的流程：① 同步（会话退出 hook 自动执行 wiki check）
 // ② 元数据补充（agent 任意时间 wiki init --intro/--summary）③ 发布（wiki blog）。
 package main
 
@@ -28,7 +28,7 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
   wiki list                   列出已注册项目及健康度
   wiki sync [--fix]           链接健康检查/修复
   wiki unlink <项目名>         移除注册与链接
-  wiki check                  Stop hook 入口：自动同步（一般无需手动跑）
+  wiki check                  会话退出 hook 入口：自动同步（一般无需手动跑）
 
 全局查看（路径规格: 项目/链接/相对路径）:
   wiki ls [项目[/子路径]]      列目录（无参列已接入项目）
