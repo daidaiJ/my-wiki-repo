@@ -67,21 +67,22 @@ func TestHugoConfig(t *testing.T) {
 	if got := HugoSiteDir(); got != filepath.Join(`X:\blog`, "mysite") {
 		t.Errorf("config hugoSite = %q", got)
 	}
-	// 绝对路径站点不拼接
-	cfg.HugoSite = `Z:\site`
+	// 绝对路径站点不拼接（平台无关：用临时目录构造绝对路径）
+	absSite := filepath.Join(t.TempDir(), "site")
+	cfg.HugoSite = absSite
 	if err := cfg.save(wiki); err != nil {
 		t.Fatal(err)
 	}
-	if got := HugoSiteDir(); got != `Z:\site` {
+	if got := HugoSiteDir(); got != absSite {
 		t.Errorf("绝对 hugoSite = %q", got)
 	}
 	// env 覆盖 config
 	t.Setenv("WIKI_HUGO_BIN", "hugo-test")
-	t.Setenv("WIKI_HUGO_SITE", `Y:\site`)
+	t.Setenv("WIKI_HUGO_SITE", absSite)
 	if got := HugoBin(); got != "hugo-test" {
 		t.Errorf("env hugoBin = %q", got)
 	}
-	if got := HugoSiteDir(); got != `Y:\site` {
+	if got := HugoSiteDir(); got != absSite {
 		t.Errorf("env hugoSite = %q", got)
 	}
 }

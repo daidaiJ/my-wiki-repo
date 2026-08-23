@@ -14,8 +14,8 @@ import (
 	"github.com/daidaiJ/my-wiki-repo/internal/cli"
 )
 
-// postsRelDir 是文章目录相对博客仓库根的默认位置。
-const postsRelDir = `pandawo\content\post`
+// postsRelDir 是文章目录相对博客仓库根的默认位置（平台无关拼接）。
+var postsRelDir = filepath.Join("pandawo", "content", "post")
 
 // WikiRoot 解析 wiki 数据根目录（开源可移植，无任何硬编码个人路径）：
 //

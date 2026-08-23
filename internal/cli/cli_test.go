@@ -2,6 +2,7 @@ package cli
 
 import (
 	"flag"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -38,13 +39,13 @@ func TestSplitCSV(t *testing.T) {
 }
 
 func TestUnderOrEqualAndSamePath(t *testing.T) {
-	if !UnderOrEqual(`D:\a\b`, `D:\a`) {
+	if !UnderOrEqual(filepath.Join("a", "b"), "a") {
 		t.Error("子目录应判定在其下")
 	}
-	if UnderOrEqual(`D:\abc`, `D:\a`) {
+	if UnderOrEqual("abc", "a") {
 		t.Error("前缀相同但非子目录不应误判")
 	}
-	if !SamePath(`D:\A\B`, `d:\a\b`) {
+	if !SamePath(filepath.Join("A", "B"), filepath.Join("a", "b")) {
 		t.Error("大小写不敏感比较失败")
 	}
 }
