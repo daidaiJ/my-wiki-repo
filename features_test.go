@@ -1,12 +1,40 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+// TestDeclarationShrinkCleansOrphanLinks 声明收缩（如 --paths 变更）后，
+// 不再声明的旧链接应被清理，保留的链接不受影响。
+func TestDeclarationShrinkCleansOrphanLinks(t *testing.T) {
+	wiki := newTestWiki(t)
+	proj := newTestProject(t, "shrinkproj", []string{"wiki", "issues"})
+	os.Remove(filepath.Join(proj, "AGENTS.md")) // 集中式声明，项目无块
+
+	if _, err := ensureRegistered(wiki, proj, &wikiSyncDecl{Paths: []string{"wiki", "issues"}}); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(wiki, "projects", "shrinkproj", "issues")
+	if _, err := os.Lstat(orphan); err != nil {
+		t.Fatalf("应有 issues 链接: %v", err)
+	}
+
+	// 收缩声明为仅 wiki
+	if _, err := ensureRegistered(wiki, proj, &wikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(orphan); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("孤儿链接应被清理: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(wiki, "projects", "shrinkproj", "wiki")); err != nil {
+		t.Error("保留声明的 wiki 链接不应被误删")
+	}
+}
 
 // --- wiki init（声明集中化：项目仓库零足迹） ---
 

@@ -280,9 +280,13 @@ func ensureRegistered(root, abs string, decl *wikiSyncDecl) (*EnsureResult, erro
 	if err := os.MkdirAll(filepath.Join(root, "projects", res.Entry.Name), 0o755); err != nil {
 		return nil, err
 	}
+	// 先按声明算出 链接路径 → 目标绝对路径 的映射，再逐个核对/补建，最后清理孤儿
+	targets := map[string]string{}
 	for _, p := range res.Entry.Paths {
 		target, _ := filepath.Abs(filepath.Join(abs, filepath.FromSlash(p)))
-		link := linkPathFor(root, res.Entry, p, taken)
+		targets[linkPathFor(root, res.Entry, p, taken)] = target
+	}
+	for link, target := range targets {
 		if resolved, err := filepath.EvalSymlinks(link); err == nil && samePath(resolved, target) {
 			continue // 链接已健康，不动它
 		}
@@ -290,6 +294,17 @@ func ensureRegistered(root, abs string, decl *wikiSyncDecl) (*EnsureResult, erro
 			return nil, err
 		}
 		res.LinksRepaired++
+	}
+	// 声明收缩时清理孤儿链接（只删链接本身，绝不碰真实目录）
+	if entries, err := os.ReadDir(filepath.Join(root, "projects", res.Entry.Name)); err == nil {
+		for _, en := range entries {
+			link := filepath.Join(root, "projects", res.Entry.Name, en.Name())
+			if _, declared := targets[link]; !declared && en.Type()&os.ModeSymlink != 0 {
+				if err := os.Remove(link); err == nil {
+					fmt.Fprintf(os.Stderr, "wiki: 已清理不再声明的链接 %s\n", link)
+				}
+			}
+		}
 	}
 
 	if res.RegistryChanged {
