@@ -5,7 +5,7 @@ description: 跨项目知识库与 Hugo 博客发布工具。接入项目知识�
 
 # wiki — 知识库与博客发布 CLI
 
-完整规约见 `D:\CODE\ai\my-wiki\AGENTS.md`，速查：
+完整规约见 wiki 根目录的 `AGENTS.md`（即 wiki.exe 所在目录，`wiki config` 可查 wikiRoot），速查：
 
 ## 接入项目 / 补充元数据（任意时间可做）
 

@@ -167,6 +167,18 @@ func TestFlatKnowledgeDirRootPath(t *testing.T) {
 	}
 }
 
+func TestResolveWikiRootByMarker(t *testing.T) {
+	// 含 index.md 标记的目录被认定为 wiki 根（exe 所在目录检测的判定逻辑）
+	wiki := newTestWiki(t) // 已写入初始 index.md
+	if got := resolveWikiRoot(wiki); got != wiki {
+		t.Errorf("resolveWikiRoot(%s) = %q, 期望原目录", wiki, got)
+	}
+	// 无标记的普通目录不认定（例如 exe 被复制到 PATH 目录的场景）
+	if got := resolveWikiRoot(t.TempDir()); got != "" {
+		t.Errorf("无 index.md 的目录不应被认定为 wiki 根, got %q", got)
+	}
+}
+
 func TestParseWikiSync(t *testing.T) {
 	proj := newTestProject(t, "p", []string{"wiki", "docs/research"})
 	decl, err := parseWikiSync(proj)

@@ -77,6 +77,7 @@ const usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (v` + version
                               标记锚定：无则追加、有则原位替换、一致则跳过
 
 环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_BLOG_REPO / WIKI_BLOG_POSTS
+wiki 根目录解析：WIKI_ROOT → wiki.exe 所在目录（含 index.md 标记，仓库搬移自适应）→ 内置默认值
 `
 
 func main() {

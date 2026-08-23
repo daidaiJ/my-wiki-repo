@@ -16,11 +16,26 @@ import (
 
 const defaultWikiRoot = `D:\CODE\ai\my-wiki`
 
+// wikiRoot 解析顺序：WIKI_ROOT 环境变量 → wiki.exe 所在目录（存在 index.md 标记时，
+// exe 与规约同仓库部署，仓库整体搬移后无需改任何配置）→ 内置默认值。
 func wikiRoot() string {
 	if v := os.Getenv("WIKI_ROOT"); v != "" {
 		return v
 	}
+	if exe, err := os.Executable(); err == nil {
+		if dir := resolveWikiRoot(filepath.Dir(exe)); dir != "" {
+			return dir
+		}
+	}
 	return defaultWikiRoot
+}
+
+// resolveWikiRoot 判断某目录是否为 wiki 根（含 index.md 注册表标记），是则返回该目录。
+func resolveWikiRoot(dir string) string {
+	if fi, err := os.Stat(filepath.Join(dir, "index.md")); err == nil && !fi.IsDir() {
+		return dir
+	}
+	return ""
 }
 
 // ProjectEntry 登记一个已接入项目：名字、根目录、介绍、摘要、接入的相对路径。
