@@ -69,23 +69,25 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 就这么多了。接入的项目多了之后，装上 agent 钩子（下一节），之后的一切都是自动的。
 
-## 接入你的 Agent（自动同步）
+## 接入你的 Agent（双 hook）
 
-wiki 只需要 agent 做一件事：**会话退出时（/quit）执行一次 `wiki check`**。它被设计为对任何钩子机制都安全：
+方案 C 推荐注册 **两个 hook**，与 `wiki check` 相同的安全契约（stdout 恒空、日志走 stderr、失败不阻塞）：
 
-- stdout 恒为空（部分工具会把 stdout 当 JSON 严格校验）
-- 日志全部走 stderr，内部错误不改变退出码
-- 不修改当前项目仓库的任何文件
+| 时机 | 命令 | 作用 |
+|---|---|---|
+| 会话开始 | `wiki prepare` | 已注册项目：建立/修复项目侧 `wiki/` 等窗口链接 |
+| 会话退出 | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表 |
 
-效果：已注册的项目自动维护链接、修复失效链接、清理声明变更后的残留链接；未注册的项目完全静默，不打扰会话。
-
-**ZCode**（Stop 钩子，`~/.zcode/cli/config.json`）：
+**ZCode**（`~/.zcode/cli/config.json`）：
 
 ```json
 {
   "hooks": {
     "enabled": true,
     "events": {
+      "Start": [
+        { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["prepare"], "timeoutMs": 8000 } ] }
+      ],
       "Stop": [
         { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["check"], "timeoutMs": 8000 } ] }
       ]
@@ -94,11 +96,14 @@ wiki 只需要 agent 做一件事：**会话退出时（/quit）执行一次 `wi
 }
 ```
 
-**Claude Code**（SessionEnd 钩子，`~/.claude/settings.json`）：
+**Claude Code**（SessionStart + SessionEnd，`~/.claude/settings.json`）：
 
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki prepare" } ] }
+    ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki check" } ] }
     ]
@@ -106,7 +111,7 @@ wiki 只需要 agent 做一件事：**会话退出时（/quit）执行一次 `wi
 }
 ```
 
-**Qwen Code / Codex / 其他不支持钩子的工具**：用引导注入代替钩子，agent 会按注入的指引在收尾时自行执行 `wiki check`：
+**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 开工前跑 `wiki prepare`、收工跑 `wiki check`：
 
 ```bash
 wiki inject --file ~/.qwen/QWEN.md
@@ -119,11 +124,12 @@ wiki inject --file ~/.codex/AGENTS.md
 
 ```bash
 # 知识库
-wiki init <项目>                                # 接入（省略 --paths 自动发现 wiki/、issues/）
-wiki init <项目> --intro "..." --summary "..."   # 事后补充/更新项目介绍与摘要
+wiki init <项目> [--paths wiki,issues]            # 首次接入；迁移正文并建窗口链接
+wiki init <项目> --intro "..." --summary "..."     # 事后补充/更新元数据
 wiki list                                       # 项目健康度一览
-wiki sync [--fix]                               # 链接检查/修复
-wiki unlink <项目>                               # 移除
+wiki sync [--fix]                               # 健康检查；--fix 迁移并重建窗口
+wiki unlink <项目> [--purge]                     # 移除注册与窗口（正文默认保留）
+wiki bundle [--archive zip|tgz]                 # 按需克隆目录树/压缩归档
 
 # 检索（路径规格：项目/链接/相对路径）
 wiki ls / wiki tree <项目> / wiki grep <模式> / wiki cat <路径>
@@ -154,9 +160,9 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 
 ## 进阶配置
 
-**工具与数据分离。** 默认数据（注册表 `index.md`、发布记录 `blog.json`、配置 `config.json`、链接目录 `projects/`）就放在本仓库克隆目录；不想混在工具仓库里的话，把数据挪到别处并设置 `WIKI_ROOT` 指向它。wiki 根解析顺序：`WIKI_ROOT` → wiki 可执行文件所在目录（含 `index.md` 标记）→ 当前目录（含标记）→ 可执行文件目录兜底。
+**工具与数据分离。** 默认数据（注册表 `index.md`、发布记录 `blog.json`、配置 `config.json`、知识正文 `projects/`）就放在本仓库克隆目录；不想混在工具仓库里的话，把数据挪到别处并设置 `WIKI_ROOT` 指向它。
 
-**用 git 管理你自己的知识。** 本仓库本身就是知识库载体，加上你自己的 remote 即可跨机器同步 `index.md` / `blog.json` / 规约文档；`projects/` 是机器本地的链接（已 gitignore），换机器后 `wiki sync --fix` 重建。工具从不自动 push。注意：公开仓库的 fork 默认公开，私有知识请推送到 private remote 而不是 fork。
+**用 git 管理你自己的知识。** wiki 根（Obsidian vault）加上 private remote 即可同步 `index.md`、`projects/` 正文、`blog.json`。换机器 clone 后注册 **Start/Stop** hook（`wiki prepare` + `wiki check`）重建项目侧窗口链接。`bundle/` 与 `*.zip`/`*.tar.gz` 归档输出已 gitignore。工具从不自动 push。
 
 **配置项。** 优先级：环境变量 > `config.json`（wiki 根下，`wiki config set <键> <值>`）> 默认值。
 
@@ -164,9 +170,10 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 |---|---|---|---|
 | `blogRepo` | `WIKI_BLOG_REPO` | 无 | Hugo 博客仓库根，用博客功能必配 |
 | `blogPosts` | `WIKI_BLOG_POSTS` | `<blogRepo>/pandawo/content/post` | 文章目录 |
-| `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 按主题 archetype 生成模板用） |
-| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录（`hugo new` 执行目录） |
-| `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名，`wiki init` 自动发现依据 |
+| `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 用） |
+| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录 |
+| `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名 |
+| `projectGitignore` | `WIKI_PROJECT_GITIGNORE` | `true` | 是否在项目仓创建/追加知识目录 `.gitignore` |
 | — | `WIKI_ROOT` | 见解析顺序 | wiki 数据根目录 |
 
 完整的 agent 规约与命令契约见 [AGENTS.md](AGENTS.md)。

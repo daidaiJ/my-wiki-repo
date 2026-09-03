@@ -11,8 +11,8 @@ import (
 
 // CmdCheck 是会话退出 hook 的入口（wiki check），在会话退出（/quit）时被 agent 工具自动调用：
 //
-//  1. 当前项目已注册（本地注册表按根目录匹配）→ 幂等同步：补建/修复知识目录链接、
-//     清理声明收缩后的孤儿链接、维护注册表
+//  1. 当前项目已注册（本地注册表按根目录匹配）→ 幂等同步：迁入知识正文、
+//     维护窗口链接、清理声明收缩后的窗口、维护注册表与可选 gitignore
 //  2. 项目 AGENTS.md 带 wiki-sync 声明块（可选 opt-in）→ 识别并接入
 //  3. 都没有 → 静默退出，绝不打扰会话
 //
@@ -61,8 +61,14 @@ func logSyncResult(res *EnsureResult) {
 	if res.RegistryChanged {
 		fmt.Fprintf(os.Stderr, "wiki check: 已更新 %s 的注册信息\n", res.Entry.Name)
 	}
+	if res.Migrated > 0 {
+		fmt.Fprintf(os.Stderr, "wiki check: 已将 %s 的 %d 个知识目录迁入知识库\n", res.Entry.Name, res.Migrated)
+	}
 	if res.LinksRepaired > 0 {
-		fmt.Fprintf(os.Stderr, "wiki check: 已修复 %s 的 %d 个链接\n", res.Entry.Name, res.LinksRepaired)
+		fmt.Fprintf(os.Stderr, "wiki check: 已修复 %s 的 %d 个窗口链接\n", res.Entry.Name, res.LinksRepaired)
+	}
+	if res.GitignoreAction != "" {
+		fmt.Fprintf(os.Stderr, "wiki check: 已%s %s 的 .gitignore\n", res.GitignoreAction, res.Entry.Name)
 	}
 	for _, w := range res.ReadmeWarnings {
 		fmt.Fprintln(os.Stderr, "wiki check ⚠ "+w)

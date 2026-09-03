@@ -46,6 +46,28 @@ func TestConfigPrecedence(t *testing.T) {
 	}
 }
 
+func TestProjectGitignoreConfig(t *testing.T) {
+	wiki := t.TempDir()
+	t.Setenv("WIKI_ROOT", wiki)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "")
+
+	if !ProjectGitignore(wiki) {
+		t.Error("缺省应为 true")
+	}
+	off := false
+	cfg := &wikiConfig{ProjectGitignore: &off}
+	if err := cfg.save(wiki); err != nil {
+		t.Fatal(err)
+	}
+	if ProjectGitignore(wiki) {
+		t.Error("config false 应生效")
+	}
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "true")
+	if !ProjectGitignore(wiki) {
+		t.Error("环境变量应覆盖 config")
+	}
+}
+
 func TestHugoConfig(t *testing.T) {
 	wiki := t.TempDir()
 	t.Setenv("WIKI_ROOT", wiki)

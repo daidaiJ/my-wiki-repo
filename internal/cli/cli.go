@@ -5,6 +5,7 @@ package cli
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,4 +93,22 @@ func DirExists(p string) bool {
 func JSONIndent(v any) []byte {
 	data, _ := json.MarshalIndent(v, "", "  ")
 	return data
+}
+
+// ParseBool 解析常见布尔写法（true/false、1/0、yes/no、on/off），大小写不敏感。
+func ParseBool(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("无效布尔值 %q（可用 true/false、1/0、yes/no）", s)
+	}
+}
+
+// Lexists 判断路径是否存在（不跟随符号链接/junction）。
+func Lexists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
 }

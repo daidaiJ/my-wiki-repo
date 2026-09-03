@@ -55,31 +55,36 @@ func findTestEntry(t *testing.T, root, name string) *ProjectEntry {
 func TestRegisterAndUnlink(t *testing.T) {
 	wiki := newTestWiki(t)
 	proj := newTestProject(t, "demoproj", []string{"wiki", "docs/research"})
+	os.WriteFile(filepath.Join(proj, "wiki", "note.md"), []byte("hello\n"), 0o644)
 
-	entry := ProjectEntry{Name: "demoproj", Root: proj, Intro: "demoproj 的介绍", Paths: []string{"wiki", "docs/research"}}
-	taken := map[string]bool{}
-	for _, p := range entry.Paths {
-		target, _ := filepath.Abs(filepath.Join(proj, p))
-		link := linkPathFor(wiki, entry, p, taken)
-		if err := createLink(target, link); err != nil {
-			t.Fatalf("createLink(%s): %v", link, err)
-		}
-		// 链接可穿透访问目标内容
-		if _, err := os.Stat(filepath.Join(link, ".")); err != nil {
-			t.Errorf("链接 %s 不可访问: %v", link, err)
-		}
-	}
-
-	reg := &Registry{Projects: []ProjectEntry{entry}}
-	if err := saveRegistry(wiki, reg); err != nil {
+	res, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki", "docs/research"}, Intro: "demoproj 的介绍"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := findTestEntry(t, wiki, "demoproj")
-	if got.Intro != "demoproj 的介绍" || len(got.Paths) != 2 {
-		t.Errorf("登记内容不符: %+v", got)
+	if res.Migrated == 0 {
+		t.Error("首次接入应迁移正文")
+	}
+	store := filepath.Join(wiki, ProjectsRootName, "demoproj", "wiki")
+	if !isRealDir(store) {
+		t.Fatalf("知识库侧应为真目录: %s", store)
+	}
+	if !isLink(filepath.Join(proj, "wiki")) {
+		t.Fatal("项目侧 wiki 应为窗口链接")
+	}
+	got, err := os.ReadFile(filepath.Join(store, "note.md"))
+	if err != nil || string(got) != "hello\n" {
+		t.Errorf("正文未迁入知识库: %s %v", got, err)
+	}
+	// 透过窗口链接仍能读
+	if _, err := os.Stat(filepath.Join(proj, "wiki", "note.md")); err != nil {
+		t.Errorf("窗口链接不可访问: %v", err)
 	}
 
-	if problems := syncProject(wiki, *got, false); len(problems) != 0 {
+	reg := findTestEntry(t, wiki, "demoproj")
+	if reg.Intro != "demoproj 的介绍" || len(reg.Paths) != 2 {
+		t.Errorf("登记内容不符: %+v", reg)
+	}
+	if problems := syncProject(wiki, *reg, false); len(problems) != 0 {
 		t.Errorf("刚注册就报问题: %v", problems)
 	}
 }
@@ -87,24 +92,22 @@ func TestRegisterAndUnlink(t *testing.T) {
 func TestSyncFixHealsBrokenLink(t *testing.T) {
 	wiki := newTestWiki(t)
 	proj := newTestProject(t, "brokenproj", []string{"wiki"})
+	os.WriteFile(filepath.Join(proj, "wiki", "n.md"), []byte("x\n"), 0o644)
 	entry := ProjectEntry{Name: "brokenproj", Root: proj, Paths: []string{"wiki"}}
 	if err := saveRegistry(wiki, &Registry{Projects: []ProjectEntry{entry}}); err != nil {
 		t.Fatal(err)
 	}
 
-	// 只登记、不建链接 → sync 报失效，--fix 修复
 	got := findTestEntry(t, wiki, "brokenproj")
 	if problems := syncProject(wiki, *got, false); len(problems) == 0 {
-		t.Fatal("链接缺失时 sync 应报问题")
+		t.Fatal("未迁移时应报问题")
 	}
 	if problems := syncProject(wiki, *got, true); len(problems) != 0 {
 		t.Fatalf("--fix 后仍有问题: %v", problems)
 	}
-	link := filepath.Join(wiki, ProjectsRootName, "brokenproj", "wiki")
-	if resolved, err := filepath.EvalSymlinks(link); err != nil {
-		t.Fatalf("修复后链接不可用: %v", err)
-	} else if !cli.SamePath(resolved, filepath.Join(proj, "wiki")) {
-		t.Errorf("链接指向 %s，期望 %s", resolved, filepath.Join(proj, "wiki"))
+	store := filepath.Join(wiki, ProjectsRootName, "brokenproj", "wiki")
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("--fix 后应为反向窗口布局")
 	}
 }
 
@@ -170,19 +173,22 @@ func TestDeclarationShrinkCleansOrphanLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	orphan := filepath.Join(wiki, ProjectsRootName, "shrinkproj", "issues")
-	if _, err := os.Lstat(orphan); err != nil {
-		t.Fatalf("应有 issues 链接: %v", err)
+	if !isRealDir(orphan) {
+		t.Fatalf("应有 issues 知识目录: %v", orphan)
 	}
 
-	// 收缩声明为仅 wiki
+	// 收缩声明为仅 wiki：项目侧 issues 窗口应摘除，知识库 issues 正文保留
 	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
-		t.Errorf("孤儿链接应被清理: %v", err)
+	if isLink(filepath.Join(proj, "issues")) {
+		t.Error("不再声明的项目侧窗口应被摘除")
+	}
+	if !isRealDir(orphan) {
+		t.Errorf("知识库 issues 正文应保留: %v", orphan)
 	}
 	if _, err := os.Lstat(filepath.Join(wiki, ProjectsRootName, "shrinkproj", "wiki")); err != nil {
-		t.Error("保留声明的 wiki 链接不应被误删")
+		t.Error("保留声明的 wiki 不应被误删")
 	}
 }
 

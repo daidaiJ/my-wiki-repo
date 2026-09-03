@@ -1,7 +1,7 @@
 // wiki — 跨项目知识库 + Hugo 博客发布 CLI。
 //
-// 三条相互独立的流程：① 同步（会话退出 hook 自动执行 wiki check）
-// ② 元数据补充（agent 任意时间 wiki init --intro/--summary）③ 发布（wiki blog）。
+// 四条相互独立的流程：① 初始化（wiki prepare）② 同步（wiki check）
+// ③ 元数据（wiki init --intro/--summary）④ 发布（wiki blog）。
 package main
 
 import (
@@ -23,12 +23,15 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
 
 知识库:
   wiki init [目录] [--paths <目录列表>] [--intro ...] [--summary ...]
-                              接入项目：声明只写本地注册表（项目仓库零足迹）；省略 --paths 自动发现
+                              接入项目：声明写本地注册表；正文迁入 projects/，项目侧改为窗口链接
   wiki register [目录]        低级命令：注册声明块（AGENTS.md opt-in）已存在的项目
   wiki list                   列出已注册项目及健康度
-  wiki sync [--fix]           链接健康检查/修复
-  wiki unlink <项目名>         移除注册与链接
+  wiki sync [--fix]           健康检查；--fix 先迁移正文再替换项目侧知识目录
+  wiki unlink <项目名> [--purge]  移除注册与窗口链接（正文默认保留；--purge 删除）
   wiki check                  会话退出 hook 入口：自动同步（一般无需手动跑）
+  wiki prepare                会话初始化 hook 入口：为已注册项目建立/修复窗口链接
+  wiki bundle [--dir <目录>] [--archive zip|tgz] [--name <文件名>]
+                              按需克隆知识目录树，可额外打压缩归档（不走 hook）
 
 全局查看（路径规格: 项目/链接/相对路径）:
   wiki ls [项目[/子路径]]      列目录（无参列已接入项目）
@@ -48,10 +51,11 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
   wiki config set hugoBin <路径>            hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
   wiki config set hugoSite <路径>           Hugo 站点目录（相对 blogRepo，缺省 pandawo）
   wiki config set knowledgeDirs <逗号列表>  知识目录类型名（默认 wiki,issues）
+  wiki config set projectGitignore <true|false>  是否在项目仓创建/追加知识目录 gitignore（默认 true）
   wiki inject [--file <指令文件>] [--remove]
                               把规约引导段注入用户级指令文件（默认 ~/.qwen/QWEN.md）
 
-环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_KNOWLEDGE_DIRS / WIKI_BLOG_REPO / WIKI_BLOG_POSTS / WIKI_HUGO_BIN / WIKI_HUGO_SITE
+环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_KNOWLEDGE_DIRS / WIKI_BLOG_REPO / WIKI_BLOG_POSTS / WIKI_HUGO_BIN / WIKI_HUGO_SITE / WIKI_PROJECT_GITIGNORE
 wiki 根解析：WIKI_ROOT → wiki 可执行文件所在目录（含 index.md 标记）→ 当前目录（含标记）→ 可执行文件目录兜底
 `
 
@@ -68,12 +72,16 @@ func main() {
 		err = registry.CmdRegister(os.Args[2:])
 	case "check":
 		err = registry.CmdCheck(os.Args[2:])
+	case "prepare":
+		err = registry.CmdPrepare(os.Args[2:])
 	case "list":
 		err = registry.CmdList(os.Args[2:])
 	case "sync":
 		err = registry.CmdSync(os.Args[2:])
 	case "unlink":
 		err = registry.CmdUnlink(os.Args[2:])
+	case "bundle":
+		err = registry.CmdBundle(os.Args[2:])
 	case "ls":
 		err = view.CmdLS(os.Args[2:])
 	case "tree":

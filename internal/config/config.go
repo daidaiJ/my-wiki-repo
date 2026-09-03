@@ -56,11 +56,12 @@ func ResolveWikiRoot(dir string) string {
 
 // wikiConfig 是 wiki 根目录下的 config.json。fork 者在此配置自己的环境。
 type wikiConfig struct {
-	BlogRepo      string   `json:"blogRepo,omitempty"`
-	BlogPosts     string   `json:"blogPosts,omitempty"`
-	KnowledgeDirs []string `json:"knowledgeDirs,omitempty"`
-	HugoBin       string   `json:"hugoBin,omitempty"`  // hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
-	HugoSite      string   `json:"hugoSite,omitempty"` // Hugo 站点目录（相对 blogRepo，缺省 pandawo）
+	BlogRepo         string   `json:"blogRepo,omitempty"`
+	BlogPosts        string   `json:"blogPosts,omitempty"`
+	KnowledgeDirs    []string `json:"knowledgeDirs,omitempty"`
+	HugoBin          string   `json:"hugoBin,omitempty"`          // hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
+	HugoSite         string   `json:"hugoSite,omitempty"`         // Hugo 站点目录（相对 blogRepo，缺省 pandawo）
+	ProjectGitignore *bool    `json:"projectGitignore,omitempty"` // 是否在项目仓维护知识目录 gitignore；缺省 true
 }
 
 func ConfigPath(root string) string { return filepath.Join(root, "config.json") }
@@ -133,6 +134,24 @@ func HugoBin() string {
 	return "hugo"
 }
 
+// ProjectGitignore 是否在接入/同步时维护项目仓 .gitignore（创建或追加知识目录条目）。
+// 缺省 true：方案 C 下个人知识正文在知识库，项目仓只留窗口链接，不应被 git add。
+// 优先级：环境变量 WIKI_PROJECT_GITIGNORE > config.json > 默认 true。
+func ProjectGitignore(root string) bool {
+	if v, ok := os.LookupEnv("WIKI_PROJECT_GITIGNORE"); ok && strings.TrimSpace(v) != "" {
+		if b, err := cli.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	if root == "" {
+		root = WikiRoot()
+	}
+	if cfg := LoadWikiConfig(root); cfg.ProjectGitignore != nil {
+		return *cfg.ProjectGitignore
+	}
+	return true
+}
+
 // HugoSiteDir 返回 Hugo 站点目录（hugo new 的执行目录）。
 func HugoSiteDir() string {
 	if v := os.Getenv("WIKI_HUGO_SITE"); v != "" {
@@ -157,12 +176,12 @@ func CmdConfig(args []string) error {
 	root := WikiRoot()
 	switch fs.NArg() {
 	case 0:
-		fmt.Printf("wikiRoot:       %s\nknowledgeDirs:  %s\nblogRepo:       %s\nblogPosts:      %s\nhugoBin:        %s\nhugoSite:       %s\n",
-			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir())
+		fmt.Printf("wikiRoot:          %s\nknowledgeDirs:     %s\nblogRepo:          %s\nblogPosts:         %s\nhugoBin:           %s\nhugoSite:          %s\nprojectGitignore:  %v\n",
+			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir(), ProjectGitignore(root))
 		return nil
 	case 3:
 		if fs.Arg(0) != "set" {
-			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite> <值>")
+			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore> <值>")
 		}
 		key, val := fs.Arg(1), fs.Arg(2)
 		cfg := LoadWikiConfig(root)
@@ -189,8 +208,14 @@ func CmdConfig(args []string) error {
 				return errors.New("knowledgeDirs 至少一个目录名（逗号分隔，如 wiki,issues）")
 			}
 			cfg.KnowledgeDirs = dirs
+		case "projectGitignore":
+			b, err := cli.ParseBool(val)
+			if err != nil {
+				return err
+			}
+			cfg.ProjectGitignore = &b
 		default:
-			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite）", key)
+			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite, projectGitignore）", key)
 		}
 		if err := cfg.save(root); err != nil {
 			return err
@@ -198,6 +223,6 @@ func CmdConfig(args []string) error {
 		fmt.Printf("已设置 %s（写入 %s）\n", key, ConfigPath(root))
 		return nil
 	default:
-		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite> <值>")
+		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore> <值>")
 	}
 }

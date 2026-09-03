@@ -1,13 +1,13 @@
 # 设计文档
 
-> my-wiki 的定位不是"又一个笔记工具"，而是 agent 工作流里的自动同步器。设计围绕一个心跳展开：会话退出（/quit）时，钩子跑一次 `wiki check`——幂等、静默、非阻塞，把项目 wiki 知识自动收进知识库。人不需要记得"接入"这件事，agent 也不需要。
+> my-wiki 的定位不是"又一个笔记工具"，而是 agent 工作流里的自动同步器。设计围绕双 hook 展开：会话开始跑 `wiki prepare`（建立项目侧窗口链接），会话退出跑 `wiki check`（维护窗口、迁移正文、同步注册表）——幂等、静默、非阻塞。人不需要记得"接入"这件事，agent 也不需要。
 
 ## 核心思想：hook 驱动，自动化优先
 
 hook 驱动的前提是架构分层，整个系统切成两层：
 
-- **数据面**：知识数据本身。笔记留在各自项目里（单一事实源），注册表、发布记录、配置在 `WIKI_ROOT` 指向的本地目录，`projects/` 链接是机器本地的视图
-- **控制流**：工具逻辑与 agent 工作流。命令契约、钩子、规约注入——这部分可以开源、可以复制、可以升级，和数据互不污染
+- **数据面**：知识数据本身。正文落在 wiki 根 `projects/<项目>/`（方案 C，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接；注册表、发布记录、配置在 `WIKI_ROOT`
+- **控制流**：工具逻辑与 agent 工作流。命令契约、双 hook（prepare/check）、规约注入——可开源、可升级，和数据互不污染
 
 分离的直接体现是 wiki 根解析：
 
@@ -27,11 +27,11 @@ func WikiRoot() string {
 }
 ```
 
-> 工具仓库可以开源（代码 + 规约），个人数据在 `WIKI_ROOT` 指向的目录，两者互不污染。换机器只要把数据目录拷过去，`projects/` 链接重建一次即可。
+> 工具仓库可以开源（代码 + 规约），个人数据在 `WIKI_ROOT` 指向的目录，两者互不污染。换机器 clone 知识库仓后，`wiki prepare` + `wiki sync --fix` 重建项目侧窗口链接即可。
 
-数据面还有一个更重要的原则：**项目仓库零足迹**。接入信息只存在 wiki 根的本地注册表，不会随项目 commit/push 泄漏到远程——个人知识配置永远不会出现在公开仓库里。
+数据面原则：**注册表集中、正文在知识库**。接入信息只存在 wiki 根的 `index.md`；知识正文在 `projects/` 真目录，git 友好。项目侧只留窗口链接，`projectGitignore` 默认 true 会把知识目录写入项目 `.gitignore`，避免误提交。
 
-## 数据面实现：注册表 + 目录链接
+## 数据面实现：注册表 + 方案 C 存储
 
 注册表持久化为 `index.md` 顶部的隐藏 JSON 块，其余是渲染视图：
 
@@ -52,58 +52,61 @@ func saveRegistry(root string, reg *Registry) error {
 
 > 一个文件同时是数据源和视图，agent 和人都能读。JSON 藏在 HTML 注释里，Markdown 渲染器不会显示它，`wiki grep` 也不会被它干扰。
 
-链接层：`projects/<项目>/` 下建 symlink 指向项目的 wiki/issues 目录，Windows 无权限时自动降级 junction：
+存储层（方案 C）：`projects/<项目>/wiki` 等是**真实目录**（git 可跟踪）；项目侧 `wiki/` 等是**窗口链接**（symlink/junction，指向知识库）。`wiki init` / `wiki sync --fix` 先迁移项目内已有正文，再替换为窗口：
 
 ```go
-// internal/registry/registry.go
-func makeLink(target, link string) error {
-    if err := os.Symlink(target, link); err == nil {
-        return nil
-    } else if runtime.GOOS == "windows" {
-        out, jerr := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
-        if jerr == nil {
-            return nil // ← junction 降级成功
-        }
-        return fmt.Errorf("symlink 失败: %v；junction 降级也失败: %v: %s", err, jerr, out)
-    }
-    return err
+// internal/registry/store.go（简化）
+func ensureInverted(store, projPath string, provision bool) (bool, error) {
+    if invertedHealthy(store, projPath) { return false, nil }
+    // 项目侧是真目录 → migrateInvert：先拷贝正文到 store，再 createLink(store, projPath)
+    // 知识库已有正文、项目侧缺失 → createLink(store, projPath)
+    // provision=true 且两侧都不存在 → MkdirAll(store) + createLink
+    ...
 }
 ```
+
+Windows 无符号链接权限时自动降级 junction（`makeLink`）。
+
+**方案 B（按需备份）**：`wiki bundle` 把 `projects/` 克隆为真实目录树，可选 zip/tgz 归档——不走 hook，供跨机器拷贝或离线备份。
 
 整体关系：
 
 ```mermaid
 flowchart LR
-    subgraph 项目仓库["项目仓库（零足迹）"]
-        P1["项目A/wiki"]
-        P2["项目B/issues"]
+    subgraph 项目仓库["项目仓库（窗口链接）"]
+        W1["项目A/wiki →"]
+        W2["项目B/issues →"]
     end
-    subgraph WR["wiki 根（WIKI_ROOT）"]
+    subgraph WR["wiki 根（WIKI_ROOT，可 git）"]
         R["注册表 index.md"]
-        L["projects/ 链接目录"]
+        S["projects/ 正文目录"]
     end
-    P1 -- "symlink / junction" --> L
-    P2 -- "symlink / junction" --> L
-    L --> R
+    W1 -- "symlink / junction" --> S
+    W2 -- "symlink / junction" --> S
+    S --> R
 ```
 
 ## 控制流实现：为 hook 而生
 
-控制流要回答一个问题：hook 和 agent 怎么和这个工具协作？两个设计贯穿始终。
+控制流要回答一个问题：hook 和 agent 怎么和这个工具协作？三个设计贯穿始终。
 
-**幂等 check，为钩子而生。** `wiki check` 被设计为对任何钩子机制都安全：
+**双 hook：prepare + check。** 两者共享 hook 安全契约：
 
 - stdout 恒为空（部分工具会把 stdout 当 JSON 严格校验）
 - 日志全部走 stderr，内部错误不改变退出码
-- 不修改当前项目仓库的任何文件
+
+| 命令 | 时机 | 作用 |
+|---|---|---|
+| `wiki prepare` | 会话开始 | 已注册项目：建立/修复项目侧窗口链接，必要时新建空知识目录 |
+| `wiki check` | 会话退出 | 已注册项目：维护窗口、迁移正文、同步注册表；有 wiki-sync 声明块则自动接入 |
 
 ```go
 // internal/registry/registry.go
-// EnsureRegistered 幂等地把项目接入知识库，init/register/check 共用
+// EnsureRegistered 幂等地接入/同步，init/register/prepare/check 共用
 func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, error) {
-    // 1. 跳过健康链接（EvalSymlinks 比对目标）
-    // 2. 修复失效链接
-    // 3. 清理声明收缩后的孤儿链接（只删链接，绝不碰真实目录）
+    // 1. ensureInverted：迁移正文 + 建立项目侧窗口链接
+    // 2. 声明收缩时只摘窗口链接，知识库真目录保留
+    // 3. 可选维护项目 .gitignore（projectGitignore）
     // 4. upsert 注册表——无变化则不写盘
     ...
 }
@@ -141,7 +144,7 @@ func ParseWithPositionals(fs *flag.FlagSet, args []string) error {
 
 ## 知识库的两个出口：Obsidian 校对 + Hugo 发布
 
-> 知识库有两个出口：Obsidian 仓库（人阅读校对）和 Hugo 博客仓库（对外发布）。Obsidian 仓库根就是 wiki 根，`projects/` 符号链接把各项目 wiki 聚合进来；校对通过的笔记才进博客流水线。调研笔记 → 知识库检索 → Obsidian 校对 → 沉淀成博客，一条链路：
+> 知识库有两个出口：Obsidian 仓库（人阅读校对）和 Hugo 博客仓库（对外发布）。Obsidian 仓库根 = wiki 根，`projects/` 下是真文件，直接索引；校对通过的笔记才进博客流水线。
 
 ```mermaid
 flowchart LR
@@ -153,7 +156,7 @@ flowchart LR
     F --> G["GitHub Actions 自动部署"]
 ```
 
-**Obsidian 是阅读器，不是存储。** 笔记的单一事实源始终在项目自己的 `wiki/` 目录，Obsidian 仓库根 = wiki 根，通过 `projects/` 符号链接聚合出全局视图。人在 Obsidian 里校对：链接通不通、结论站不站得住、有没有遗漏。这是整条链路唯一的人工关卡——agent 产出再快，发布前必须过一遍人眼。接入细节见 [obsidian.md](obsidian.md)。
+**Obsidian 是阅读器。** 知识正文在 `projects/<项目>/`；agent 经项目侧窗口链接写入，Obsidian 在 wiki 根直接阅读校对。这是整条链路唯一的人工关卡。接入细节见 [obsidian.md](obsidian.md)。
 
 **博客发布是流水线，不是手工活。** `blog new` 把创建文章的机械步骤全部自动化：
 

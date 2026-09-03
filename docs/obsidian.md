@@ -16,15 +16,16 @@ setx WIKI_ROOT "D:\path\to\vault"
 export WIKI_ROOT=/path/to/vault
 ```
 
-3. `wiki init <项目>` 接入项目——注册表 `index.md`、`config.json`、`projects/` 链接全部落在仓库目录里，Obsidian 里立即可见
-4. 验证：`wiki ls` 项目在册，`obsidian vault=<仓库名> folders` 索引完整
+3. `wiki init <项目>` 接入项目——注册表 `index.md`、`config.json`、`projects/` 正文全部落在仓库目录里，Obsidian 里立即可见
+4. 注册 **Start + Stop** hook（`wiki prepare` + `wiki check`），换机器后窗口链接自动重建
+5. 验证：`wiki ls` 项目在册，`obsidian vault=<仓库名> folders` 索引完整
 
 ## 路线二：顺序反了，迁移现有持久化目录
 
 wiki CLI 数据已经存在（比如在旧位置），迁移进 Obsidian 仓库分四步：
 
 1. **迁数据**：`index.md`（注册表）、`config.json`、`blog.json`、`projects/` 整个目录移进仓库
-2. **显式指定 WIKI_ROOT**：wiki 根靠 `index.md` 标记解析（环境变量 > exe 目录 > 当前目录），只搬文件不设环境变量，钩子会静默失效、`wiki check` 空转：
+2. **显式指定 WIKI_ROOT**：wiki 根靠 `index.md` 标记解析（环境变量 > exe 目录 > 当前目录），只搬文件不设环境变量，hook 会静默失效：
 
 ```bash
 # Windows
@@ -33,12 +34,14 @@ setx WIKI_ROOT "D:\path\to\vault"
 export WIKI_ROOT=/path/to/vault
 ```
 
-钩子不依赖终端环境，内联设置：
+hook 内联设置：
 
 ```bash
 # Windows（cmd）
-cmd /c "set WIKI_ROOT=D:\path\to\vault&& wiki check"
+cmd /c "set WIKI_ROOT=D:\path\to\vault&& wiki.exe prepare"
+cmd /c "set WIKI_ROOT=D:\path\to\vault&& wiki.exe check"
 # macOS / Linux
+WIKI_ROOT=/path/to/vault wiki prepare
 WIKI_ROOT=/path/to/vault wiki check
 ```
 
@@ -54,7 +57,7 @@ WIKI_ROOT=/path/to/vault wiki check
 4. **验证清单**：
 
 - `wiki ls`：项目全部在册
-- `obsidian vault=<仓库名> folders/files`：符号链接内容全部索引（Obsidian 原生支持 symlink，约束：目标与仓库根不相交、无循环）
+- `obsidian vault=<仓库名> folders/files`：`projects/` 下正文全部索引
 - 最终结构：
 
 ```
@@ -62,10 +65,20 @@ WIKI_ROOT=/path/to/vault wiki check
 ├── .obsidian/
 ├── index.md                  ← 注册表（标记）
 ├── config.json / blog.json
-└── projects/                 ← 各项目知识目录链接
-    ├── project-a/wiki -> /path/to/project-a/wiki
-    ├── project-b/wiki -> /path/to/project-b/wiki
+└── projects/                 ← 各项目知识正文（真文件，可 git）
+    ├── project-a/wiki/
+    │   └── note.md
+    ├── project-b/issues/
+    │   └── ...
     └── ...
 ```
 
-> 两条路线殊途同归：Obsidian 仓库根 = wiki 根，一个目录两用。推荐路线一，但路线二也不复杂——迁数据、设 WIKI_ROOT、注册、验证四步，十分钟收工。
+项目侧（不在 Obsidian vault 内）：
+
+```
+/path/to/project-a/
+├── wiki/                     ← 窗口链接 → <vault>/projects/project-a/wiki
+└── .gitignore                ← wiki 维护的知识目录 ignore 条目
+```
+
+> 两条路线殊途同归：Obsidian 仓库根 = wiki 根，一个目录两用。方案 C 下 Obsidian 直接读 `projects/` 真文件，比旧版符号链接聚合更简单、git 更友好。

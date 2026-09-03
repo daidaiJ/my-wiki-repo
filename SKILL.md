@@ -18,8 +18,8 @@ wiki config            # 检查 wikiRoot / knowledgeDirs / blogRepo 是否符合
 wiki config set blogRepo <Hugo 仓库绝对路径>
 #    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
 wiki config set hugoBin <hugo 可执行文件路径>
-# 4. 会话退出 hook 自动同步（~/.qwen/settings.json 的 hooks.SessionEnd 或 ~/.zcode/cli/config.json 的 hooks.events.Stop，
-#    command/process 类型直调 wiki.exe check，stdout 恒空契约——详见工具仓库 README 教程）
+# 4. 双 hook：会话开始 wiki prepare（建窗口链接）、退出 wiki check（维护同步）
+#    ZCode Start/Stop 或 Claude SessionStart/SessionEnd —— 详见工具仓库 README / AGENTS.md
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
 wiki inject             # 标记锚定：追加/原位替换/幂等
 # 6. 健康自检：
@@ -28,14 +28,14 @@ wiki list && wiki sync
 
 ## 二、知识库日常操作（高频）
 
-**接入项目 / 补充元数据**（agent 任意时间可做）：
+**接入项目**（首次 `wiki init`，之后 hook 自动维护窗口）：
 
 ```bash
-wiki init <项目路径>                          # 自动发现 wiki/issues 目录（类型名可在 config knowledgeDirs 配置）
-wiki init <项目路径> --intro "一句话介绍" --summary "摘要"   # 事后补充/更新，paths 省略保留
+wiki init <项目路径> --paths wiki,issues    # 首次接入；可预建空目录
+wiki prepare                                 # 开工前（hook 或手动）：已注册项目建/修窗口链接
 ```
 
-要点：声明只存本地注册表，**项目仓库零足迹**；每个接入目录必须有 `README.md` 索引目录内文档（agent 维护，缺失会告警）；上游自带同名 wiki/issues 的先干掉或整理合并；`docs/` 等官方文档同名目录不接。
+要点：声明只存本地注册表；知识正文在 `projects/`（可 git），项目侧 `wiki/` 等为窗口链接；`projectGitignore` 默认写入项目 `.gitignore`；每个接入目录须有 `README.md` 索引。
 
 **跨项目检索**（路径规格：`项目/链接/相对路径`）：
 
@@ -48,11 +48,11 @@ wiki tree <项目> --depth 2
 
 **维护**：`wiki list`（健康度）/ `wiki sync [--fix]`（修链接）/ `wiki unlink <项目>`。
 
-会话退出时自动完成：链接补建与失效修复、声明收缩后的孤儿清理、注册表元数据同步——这些**无需手动做**。
+会话退出时自动完成：窗口链接维护、正文迁移、注册表同步——**无需手动做**（开工前 `wiki prepare` 同样自动）。
 
 ## 三、发布博客（可选；仅当用户明确要发布时）
 
-发布前先提示用户在 Obsidian 校对（知识库 = Obsidian 仓库根，`projects/` 符号链接可见；接入见工具仓库 `docs/obsidian.md`）。
+发布前先提示用户在 Obsidian 校对（知识库 = Obsidian 仓库根，`projects/` 下是真文件；接入见工具仓库 `docs/obsidian.md`）。
 
 ```bash
 wiki blog list                          # 只列 categories/tags（按使用次数降序），优先复用已有类别防碎片化

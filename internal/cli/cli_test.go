@@ -49,3 +49,23 @@ func TestUnderOrEqualAndSamePath(t *testing.T) {
 		t.Error("大小写不敏感比较失败")
 	}
 }
+
+func TestParseBool(t *testing.T) {
+	yes := []string{"true", "TRUE", "1", "yes", "On"}
+	for _, s := range yes {
+		b, err := ParseBool(s)
+		if err != nil || !b {
+			t.Errorf("ParseBool(%q) = %v, %v", s, b, err)
+		}
+	}
+	no := []string{"false", "0", "no", "OFF"}
+	for _, s := range no {
+		b, err := ParseBool(s)
+		if err != nil || b {
+			t.Errorf("ParseBool(%q) = %v, %v", s, b, err)
+		}
+	}
+	if _, err := ParseBool("maybe"); err == nil {
+		t.Error("非法值应报错")
+	}
+}

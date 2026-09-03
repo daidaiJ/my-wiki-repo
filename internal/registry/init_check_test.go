@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/daidaiJ/my-wiki-repo/internal/cli"
@@ -50,7 +51,11 @@ func TestInitFlowAndMetadataUpdate(t *testing.T) {
 		t.Errorf("paths 应保留: %v", e.Paths)
 	}
 	if _, err := os.Stat(filepath.Join(proj, "AGENTS.md")); err == nil {
-		t.Fatal("元数据补充也不应在项目仓库创建文件")
+		t.Fatal("元数据补充也不应在项目仓库创建 AGENTS.md")
+	}
+	gi, err := os.ReadFile(filepath.Join(proj, ".gitignore"))
+	if err != nil || !strings.Contains(string(gi), "/wiki") {
+		t.Errorf("缺省应创建 .gitignore 并写入 /wiki: %s %v", gi, err)
 	}
 }
 
@@ -99,14 +104,20 @@ func TestCheckAutoSyncByRegistry(t *testing.T) {
 	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}, Intro: "自动同步介绍"}); err != nil {
 		t.Fatal(err)
 	}
-	// 破坏链接 → check 自动修复
-	link := filepath.Join(wiki, ProjectsRootName, "autoproj", "wiki")
-	os.Remove(link)
+	store := filepath.Join(wiki, ProjectsRootName, "autoproj", "wiki")
+	window := filepath.Join(proj, "wiki")
+	if !invertedHealthy(store, window) {
+		t.Fatal("接入后应为反向窗口布局")
+	}
+	os.Remove(window)
 	if err := checkLogic(wiki, proj); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(link); err != nil {
-		t.Error("check 应自动重建失效链接")
+	if !isLink(window) {
+		t.Error("check 应自动重建窗口链接")
+	}
+	if _, err := os.Stat(filepath.Join(store, "README.md")); err != nil {
+		t.Error("知识库正文不应因修复窗口而丢失")
 	}
 }
 

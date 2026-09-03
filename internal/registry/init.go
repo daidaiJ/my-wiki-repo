@@ -12,9 +12,9 @@ import (
 	"github.com/daidaiJ/my-wiki-repo/internal/config"
 )
 
-// CmdInit 是 agent 的接入入口：声明与元数据只写入 wiki 根的本地注册表（index.md，
-// 本地 git 无 remote），并在 projects/ 下建链接。**不在项目仓库留下任何文件**，
-// 因此声明永远不会随项目 commit/push 泄漏到远程。
+// CmdInit 是 agent 的接入入口：声明与元数据只写入 wiki 根的本地注册表（index.md），
+// 把知识正文迁入 projects/<项目>/，再把项目侧知识目录换成窗口链接。
+// 可选维护项目 .gitignore（config projectGitignore，缺省 true）。
 //
 // --paths 省略时按 config.KnowledgeDirs 自动发现项目下的知识目录；
 // intro/summary 可在任意时间事后补充（省略时保留已有值）。
@@ -75,8 +75,14 @@ func CmdInit(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("已接入项目 %s（%s）\n  声明位置: %s（本地注册表，项目仓库零足迹，不会随项目 push 外泄）\n  接入路径: %s\n",
-		res.Entry.Name, abs, registryPath(root), strings.Join(decl.Paths, ", "))
+	fmt.Printf("已接入项目 %s（%s）\n  声明位置: %s（本地注册表，不会随项目 push 外泄）\n  接入路径: %s\n  存储: %s 下真实文件；项目侧为窗口链接\n",
+		res.Entry.Name, abs, registryPath(root), strings.Join(decl.Paths, ", "), filepath.Join(root, ProjectsRootName, res.Entry.Name))
+	if res.Migrated > 0 {
+		fmt.Printf("  本次迁移 %d 个知识目录（先拷贝再替换项目侧目录）\n", res.Migrated)
+	}
+	if res.GitignoreAction != "" {
+		fmt.Printf("  .gitignore: 已%s知识目录条目\n", map[string]string{"created": "创建并写入", "appended": "追加"}[res.GitignoreAction])
+	}
 	printWarnings(res.ReadmeWarnings)
 	return nil
 }

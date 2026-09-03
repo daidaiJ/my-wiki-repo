@@ -1,7 +1,9 @@
-projects/
 *.exe
 /wiki
 config.json
 .zcode/
 .qwen/
 graphify-out/
+bundle/
+*.zip
+*.tar.gz

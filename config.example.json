@@ -1,4 +1,5 @@
 {
   "blogRepo": "D:/path/to/your-hugo-repo",
-  "knowledgeDirs": ["wiki", "issues"]
+  "knowledgeDirs": ["wiki", "issues"],
+  "projectGitignore": true
 }
