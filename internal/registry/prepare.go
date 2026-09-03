@@ -40,6 +40,7 @@ func prepareEntry(root string, entry ProjectEntry) error {
 		Paths:   entry.Paths,
 		Intro:   entry.Intro,
 		Summary: entry.Summary,
+		Mode:    entry.Mode,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wiki prepare: 同步 %s 失败: %v\n", entry.Root, err)
@@ -55,6 +56,9 @@ func logPrepareResult(res *EnsureResult) {
 	}
 	if res.Migrated > 0 {
 		fmt.Fprintf(os.Stderr, "wiki prepare: 已将 %s 的 %d 个知识目录迁入知识库\n", res.Entry.Name, res.Migrated)
+	}
+	if res.Synced > 0 {
+		fmt.Fprintf(os.Stderr, "wiki prepare: 已增量同步 %s 的 %d 个知识目录\n", res.Entry.Name, res.Synced)
 	}
 	if res.GitignoreAction != "" {
 		fmt.Fprintf(os.Stderr, "wiki prepare: 已%s %s 的 .gitignore\n", res.GitignoreAction, res.Entry.Name)

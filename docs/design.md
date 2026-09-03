@@ -67,7 +67,30 @@ func ensureInverted(store, projPath string, provision bool) (bool, error) {
 
 Windows 无符号链接权限时自动降级 junction（`makeLink`）。
 
-**方案 B（按需备份）**：`wiki bundle` 把 `projects/` 克隆为真实目录树，可选 zip/tgz 归档——不走 hook，供跨机器拷贝或离线备份。
+**方案 B（按需备份）**：`wiki bundle` 把 `projects/` 克隆为真实目录树，可选 zip/tgz 归档——不走 hook，供跨机器拷贝或离线备份。窗口链接在 bundle 时被解析成真实文件，所以归档对 link/copy 两种模式通用。
+
+## 两种存储模式：窗口链接 vs 增量拷贝
+
+方案 C 的知识正文统一落在 `projects/<项目>/`，但「项目侧怎么看到这些正文」有两种模式，接入时按项目二选一（`wiki init --mode copy|link`，或 `defaultMode` 配置默认）：
+
+| | **link 模式**（缺省） | **copy 模式** |
+|---|---|---|
+| 项目侧形态 | 窗口链接（symlink/junction）→ 知识库 | 真实目录 |
+| 知识库侧 | 唯一正本，agent 经链接直写 | 项目正文的增量合并拷贝 |
+| 同步机制 | 无需同步（物理上是同一份文件） | prepare/check hook 增量同步：只拷新增/修改，mtime 新者胜，**永不删文件** |
+| 知识正文的 git 归属 | 知识库仓（`projectGitignore` 默认把知识目录写进项目 `.gitignore`） | 项目仓（拷贝模式不碰项目 `.gitignore`） |
+| Obsidian 校对修改 | 直接落在正本 | 保留——知识库侧更新的文件不会被项目侧旧版本覆盖 |
+| 符号链接依赖 | 有（Windows 无权限自动降级 junction） | 无 |
+| `bundle` 归档 / `grep` 检索 | 透明支持（都作用在 `projects/` 上） | 透明支持 |
+
+copy 模式的同步语义是**合并单向**：项目 → 知识库拷入新增和修改的文件；知识库侧的修改（Obsidian 校对）因 mtime 更新而保留；项目侧删除的文件在知识库**残留不删**——这是刻意设计（笔记不应悄悄消失），代价是知识库可能积累项目侧已删除的旧文件。判定与 `rsync -u` 一致：目标缺失或源 mtime 更晚才拷，拷贝后目标 mtime 为当前时间，未变更文件零拷贝，小文件多也不慢。
+
+**适宜场景：**
+
+- **link（缺省）**：知识只归知识库管、不想在项目里维护两份拷贝；Windows 环境可接受 junction。多数项目用这个
+- **copy**：项目仓是自己维护的，希望知识正文随项目 git 一起提交/同步给协作者；或所在环境不便建符号链接；或希望 Obsidian 校对产物回流时项目侧保持独立不被链接穿透
+
+两种模式都只在新接入时确定：已注册项目重复 `init --mode` 会告警并保留原模式，换模式需 `wiki unlink` 后重新 `init`。copy 模式遇残留链接布局（项目侧/知识库侧任一为链接）一律拒绝动手，防止错误覆盖搬迁。
 
 整体关系：
 

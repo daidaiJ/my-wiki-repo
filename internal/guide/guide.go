@@ -1,5 +1,6 @@
 // Package guide 把 wiki 规约引导段注入其他 agent 工具的用户级指令文件
-// （默认 qwen code 的 ~/.qwen/QWEN.md），标记锚定、跨版本原位替换。
+// （目标路径可用 config injectFile 配置——不同 agent 工具的路径不同，
+// 缺省 qwen code 的 ~/.qwen/QWEN.md），标记锚定、跨版本原位替换。
 package guide
 
 import (
@@ -7,11 +8,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/daidaiJ/my-wiki-repo/internal/cli"
+	"github.com/daidaiJ/my-wiki-repo/internal/config"
 )
 
 const (
@@ -30,7 +31,7 @@ func guideSection() string {
 	b.WriteString("- 接入项目：`wiki init <项目路径> [--paths wiki,issues]`（首次）；已注册项目开工前 `wiki prepare`、收工 `wiki check`（hook 自动或 agent 手动）\n")
 	b.WriteString("- 全局检索（路径规格：项目/链接/文件）：`wiki ls` / `wiki grep <模式>` / `wiki cat <项目/链接/文件>` / `wiki tree <项目>`\n")
 	b.WriteString("- 发博客：先 `wiki blog list` → `wiki blog new …` → `wiki blog publish <name>`；push 失败不重试\n")
-	b.WriteString("- 方案 C：知识正文在 `projects/`，项目侧 `wiki/` 等为窗口链接；`projectGitignore` 默认写入项目 .gitignore；跨机器备份用 `wiki bundle [--archive zip|tgz]`\n")
+	b.WriteString("- 方案 C 两种存储模式：link（缺省，知识正文在 `projects/`，项目侧为窗口链接，`projectGitignore` 写 .gitignore）；copy（`wiki init --mode copy`，项目侧真目录归项目 git 管，知识库存增量拷贝）；跨机器备份用 `wiki bundle [--archive zip|tgz]`\n")
 	b.WriteString(guideEndMarker)
 	return b.String()
 }
@@ -79,18 +80,11 @@ func removeGuide(path string) (string, error) {
 	return "removed", os.WriteFile(path, []byte(updated), 0o644)
 }
 
-func defaultGuideTarget() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".qwen", "QWEN.md"), nil
-}
-
 // CmdInject 把规约引导段注入用户级指令文件（--remove 摘除）。
+// 目标优先级：--file 旗标 > config.json injectFile / WIKI_INJECT_FILE 环境变量 > ~/.qwen/QWEN.md。
 func CmdInject(args []string) error {
 	fs := flag.NewFlagSet("inject", flag.ContinueOnError)
-	file := fs.String("file", "", "目标指令文件（缺省 ~/.qwen/QWEN.md）")
+	file := fs.String("file", "", "目标指令文件（缺省 config injectFile，再缺省 ~/.qwen/QWEN.md）")
 	remove := fs.Bool("remove", false, "摘除引导段而非注入")
 	if err := cli.ParseWithPositionals(fs, args); err != nil {
 		return err
@@ -98,7 +92,7 @@ func CmdInject(args []string) error {
 	target := *file
 	if target == "" {
 		var err error
-		target, err = defaultGuideTarget()
+		target, err = config.InjectFile()
 		if err != nil {
 			return err
 		}

@@ -31,15 +31,31 @@ const BundleRootName = "bundle"
 // ProjectsRoot 返回统一视图目录 <wikiRoot>/projects。
 func ProjectsRoot() string { return filepath.Join(config.WikiRoot(), ProjectsRootName) }
 
+// 存储模式：link（缺省，窗口链接）或 copy（项目侧真目录 + 知识库增量拷贝）。
+const (
+	ModeLink = "link"
+	ModeCopy = "copy"
+)
+
 // ProjectEntry 登记一个已接入项目：名字、根目录、介绍、摘要、接入的相对路径。
 // intro/summary 由 agent 在任意时间补充（wiki init --intro/--summary），
 // 会话退出 hook 把最新值同步进注册表。
+// Mode 为空按 link 处理（兼容已有 index.md）。
 type ProjectEntry struct {
 	Name    string   `json:"name"`
 	Root    string   `json:"root"`
 	Intro   string   `json:"intro"`
 	Summary string   `json:"summary,omitempty"`
 	Paths   []string `json:"paths"`
+	Mode    string   `json:"mode,omitempty"`
+}
+
+// effectiveMode 返回归一化后的存储模式（空值视为 link）。
+func (e ProjectEntry) effectiveMode() string {
+	if e.Mode == ModeCopy {
+		return ModeCopy
+	}
+	return ModeLink
 }
 
 // Registry 是注册表数据，持久化为 index.md 顶部的隐藏 JSON 块。
@@ -52,6 +68,7 @@ type WikiSyncDecl struct {
 	Paths   []string `json:"paths"`
 	Intro   string   `json:"intro"`
 	Summary string   `json:"summary,omitempty"`
+	Mode    string   `json:"mode,omitempty"` // link（缺省）或 copy
 }
 
 var (
@@ -99,13 +116,13 @@ func saveRegistry(root string, reg *Registry) error {
 	b.WriteString("\n-->\n\n")
 	b.WriteString("# 项目索引\n\n")
 	b.WriteString("> 本文件由 wiki 工具自动生成维护，不要手改。\n\n")
-	b.WriteString("| 项目 | 目录 | 介绍 | 接入路径 |\n|---|---|---|---|\n")
+	b.WriteString("| 项目 | 目录 | 模式 | 介绍 | 接入路径 |\n|---|---|---|---|---|\n")
 	for _, p := range reg.Projects {
 		intro := p.Intro
 		if intro == "" {
 			intro = "（待补充：wiki init --intro）"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", p.Name, p.Root, intro, strings.Join(p.Paths, ", "))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", p.Name, p.Root, p.effectiveMode(), intro, strings.Join(p.Paths, ", "))
 	}
 	b.WriteString("\n## 项目摘要（agent 维护，wiki init --summary 可更新）\n\n")
 	for _, p := range reg.Projects {
@@ -219,15 +236,20 @@ type EnsureResult struct {
 	RegistryChanged bool         // 注册表内容有变（新项目、元数据更新、路径变化）
 	LinksRepaired   int          // 重建/修复的窗口链接数
 	Migrated        int          // 本次从项目真目录迁入知识库的路径数
+	Synced          int          // 拷贝模式下本次发生增量同步的知识路径数
 	GitignoreAction string       // created / appended / 空（未写盘）
 	ReadmeWarnings  []string     // 接入目录缺 README 索引
 }
 
 // EnsureRegistered 幂等地把项目接入知识库（方案 C）：
-// 先把知识正文迁入 projects/<项目>/，再把项目侧知识目录换成窗口链接；
+// link 模式（缺省）先把知识正文迁入 projects/<项目>/，再把项目侧知识目录换成窗口链接；
+// copy 模式项目侧保持真目录，知识库存增量合并拷贝；
 // 声明收缩时只摘窗口链接与残留正向链接，绝不删知识库真目录；
 // upsert 注册表（无变化则不写盘）。供 init/register/check 共用。
 func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, error) {
+	if decl.Mode != "" && decl.Mode != ModeLink && decl.Mode != ModeCopy {
+		return nil, fmt.Errorf("未知存储模式 %q（可用 link 或 copy）", decl.Mode)
+	}
 	res := &EnsureResult{}
 	res.Entry = ProjectEntry{
 		Name:    badNameChars.ReplaceAllString(filepath.Base(abs), "_"),
@@ -235,6 +257,7 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 		Intro:   decl.Intro,
 		Summary: decl.Summary,
 		Paths:   decl.Paths,
+		Mode:    decl.Mode,
 	}
 
 	reg, err := LoadRegistry(root)
@@ -257,22 +280,31 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 		projPath, _ := filepath.Abs(filepath.Join(abs, filepath.FromSlash(p)))
 		stores[store] = projPath
 
-		wasLegacy := p != "." && p != "" && legacyForward(store, projPath)
-		storeWasReal := isRealDir(store)
 		var changed bool
-		if p == "." || p == "" {
+		switch {
+		case res.Entry.Mode == ModeCopy:
+			if p == "." || p == "" {
+				return nil, fmt.Errorf("拷贝模式不支持平铺接入（.）: %s", abs)
+			}
+			changed, err = ensureCopyMode(store, projPath, true)
+		case p == "." || p == "":
 			changed, err = ensureForwardLink(store, projPath)
-		} else {
+		default:
+			wasLegacy := p != "." && p != "" && legacyForward(store, projPath)
+			storeWasReal := isRealDir(store)
 			changed, err = ensureInverted(store, projPath, true)
+			if err == nil && changed {
+				res.LinksRepaired++
+				if wasLegacy || (!storeWasReal && isRealDir(store)) {
+					res.Migrated++
+				}
+			}
 		}
 		if err != nil {
 			return nil, err
 		}
-		if changed {
-			res.LinksRepaired++
-			if wasLegacy || (!storeWasReal && isRealDir(store)) {
-				res.Migrated++
-			}
+		if changed && res.Entry.Mode == ModeCopy {
+			res.Synced++
 		}
 	}
 
@@ -299,7 +331,8 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 		}
 	}
 
-	if gitignoreEnabled(root) {
+	// 拷贝模式正文归项目 git 管，不写 .gitignore；仅链接模式维护
+	if gitignoreEnabled(root) && res.Entry.Mode != ModeCopy {
 		action, err := ensureProjectGitignore(abs, res.Entry.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("维护项目 .gitignore 失败: %w", err)
@@ -346,7 +379,7 @@ func findEntryByRoot(reg *Registry, abs string) (ProjectEntry, bool) {
 
 func sameEntry(a, b ProjectEntry) bool {
 	if a.Name != b.Name || a.Root != b.Root || a.Intro != b.Intro || a.Summary != b.Summary ||
-		len(a.Paths) != len(b.Paths) {
+		a.effectiveMode() != b.effectiveMode() || len(a.Paths) != len(b.Paths) {
 		return false
 	}
 	for i := range a.Paths {
@@ -388,7 +421,7 @@ func CmdRegister(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("已注册项目 %s（%s），接入路径 %d 个，本次修复窗口 %d 个、迁移 %d 个\n", res.Entry.Name, abs, len(res.Entry.Paths), res.LinksRepaired, res.Migrated)
+	fmt.Printf("已注册项目 %s（%s），接入路径 %d 个，本次修复窗口 %d 个、迁移 %d 个、增量同步 %d 个\n", res.Entry.Name, abs, len(res.Entry.Paths), res.LinksRepaired, res.Migrated, res.Synced)
 	printWarnings(res.ReadmeWarnings)
 	return nil
 }
@@ -410,7 +443,7 @@ func CmdList(args []string) error {
 		fmt.Println("尚未注册任何项目。agent 执行 wiki init --paths <目录> 即可接入。")
 		return nil
 	}
-	fmt.Printf("%-20s %-6s %s\n", "项目", "状态", "介绍")
+	fmt.Printf("%-20s %-6s %-6s %s\n", "项目", "状态", "模式", "介绍")
 	var allWarnings []string
 	for _, p := range reg.Projects {
 		status, extra := "正常", ""
@@ -419,6 +452,16 @@ func CmdList(args []string) error {
 		for _, rel := range p.Paths {
 			projPath := filepath.Join(p.Root, filepath.FromSlash(rel))
 			store := linkPathFor(root, p, rel, taken)
+			if p.Mode == ModeCopy {
+				// 拷贝模式健康 = 两侧均真目录；项目侧出现链接或缺失为异常
+				switch {
+				case rel == "." || rel == "" || isLink(projPath) || !cli.DirExists(projPath) || isLink(store):
+					dead++
+				case !isRealDir(store):
+					pending++
+				}
+				continue
+			}
 			if rel == "." || rel == "" {
 				if !cli.DirExists(p.Root) {
 					dead++
@@ -448,7 +491,7 @@ func CmdList(args []string) error {
 		if intro == "" {
 			intro = "（介绍待补充）"
 		}
-		fmt.Printf("%-20s %-6s %s %s\n", p.Name, status, intro, extra)
+		fmt.Printf("%-20s %-6s %-6s %s %s\n", p.Name, status, p.effectiveMode(), intro, extra)
 		allWarnings = append(allWarnings, readmeWarnings(p)...)
 	}
 	printWarnings(allWarnings)
@@ -466,6 +509,31 @@ func syncProject(root string, e ProjectEntry, fix bool) []string {
 	for _, rel := range e.Paths {
 		projPath := filepath.Join(e.Root, filepath.FromSlash(rel))
 		store := linkPathFor(root, e, rel, taken)
+		if e.Mode == ModeCopy {
+			switch {
+			case rel == "." || rel == "":
+				problems = append(problems, fmt.Sprintf("%s: 拷贝模式不支持平铺接入（.）", e.Name))
+			case isLink(projPath) || !cli.DirExists(projPath):
+				problems = append(problems, fmt.Sprintf("%s: %s 项目侧缺失或是链接，与拷贝模式不符", e.Name, rel))
+			case isLink(store) || !isRealDir(store):
+				if fix {
+					if _, err := ensureCopyMode(store, projPath, true); err != nil {
+						problems = append(problems, fmt.Sprintf("%s: 同步 %s 失败: %v", e.Name, rel, err))
+					} else {
+						fmt.Printf("已拷贝同步 %s（知识库 %s）\n", e.Name+"/"+rel, store)
+					}
+				} else {
+					problems = append(problems, fmt.Sprintf("%s: %s 知识库拷贝缺失（wiki sync --fix 首次拷贝）", e.Name, rel))
+				}
+			default:
+				if fix {
+					if _, err := ensureCopyMode(store, projPath, true); err != nil {
+						problems = append(problems, fmt.Sprintf("%s: 同步 %s 失败: %v", e.Name, rel, err))
+					}
+				}
+			}
+			continue
+		}
 		if rel == "." || rel == "" {
 			if resolved, err := filepath.EvalSymlinks(store); err == nil && cli.SamePath(resolved, e.Root) && isLink(store) {
 				continue

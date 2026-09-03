@@ -54,7 +54,7 @@ func syncDecl(root, proj string, decl *WikiSyncDecl) error {
 
 // syncEntry 按注册表现有内容幂等维护链接与元数据。
 func syncEntry(root string, entry ProjectEntry) error {
-	return syncDecl(root, entry.Root, &WikiSyncDecl{Paths: entry.Paths, Intro: entry.Intro, Summary: entry.Summary})
+	return syncDecl(root, entry.Root, &WikiSyncDecl{Paths: entry.Paths, Intro: entry.Intro, Summary: entry.Summary, Mode: entry.Mode})
 }
 
 func logSyncResult(res *EnsureResult) {
@@ -63,6 +63,9 @@ func logSyncResult(res *EnsureResult) {
 	}
 	if res.Migrated > 0 {
 		fmt.Fprintf(os.Stderr, "wiki check: 已将 %s 的 %d 个知识目录迁入知识库\n", res.Entry.Name, res.Migrated)
+	}
+	if res.Synced > 0 {
+		fmt.Fprintf(os.Stderr, "wiki check: 已增量同步 %s 的 %d 个知识目录\n", res.Entry.Name, res.Synced)
 	}
 	if res.LinksRepaired > 0 {
 		fmt.Fprintf(os.Stderr, "wiki check: 已修复 %s 的 %d 个窗口链接\n", res.Entry.Name, res.LinksRepaired)

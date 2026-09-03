@@ -26,7 +26,12 @@
 
 ## 一、接入声明（集中式注册表 + 方案 C 存储）
 
-接入信息（paths/intro/summary）**只存在 wiki 根的本地注册表 `index.md`**。`wiki init` 写注册表、把正文迁入 `projects/<项目>/`，并在项目侧建立窗口链接。`projectGitignore` 默认 true，会在项目仓创建/追加 `.gitignore` 条目。
+接入信息（paths/intro/summary/mode）**只存在 wiki 根的本地注册表 `index.md`**。`wiki init` 写注册表、按模式建立存储布局，并维护项目侧窗口。`projectGitignore` 默认 true，会在项目仓创建/追加 `.gitignore` 条目（仅 link 模式）。
+
+**两种存储模式**（`wiki init --mode` 选择，或 `config.json` 的 `defaultMode` 设默认；仅新接入项目生效，已注册项目保留原模式，换模式需 unlink 后重新 init）：
+
+- `link`（缺省）：知识正文迁入 `projects/<项目>/`，项目侧为窗口链接；agent 经链接直写，无同步开销
+- `copy`：项目侧保持真目录（正文归项目 git 管，不写 .gitignore），知识库存增量合并拷贝——hook 同步只拷新增/修改（mtime 新者胜），永不删文件，Obsidian 侧校对修改保留；不支持平铺接入（`.`），遇残留链接布局拒绝动手防误覆盖
 
 - 知识目录类型名默认 `wiki/` 与 `issues/`，可在 `config.json` 的 `knowledgeDirs` 配置；`wiki init --paths wiki` 可在目录尚不存在时预建空知识库与窗口
 - **上游同名目录冲突**：clone 的上游项目若自带 `wiki/` 或 `issues/`，`wiki init` / `wiki sync --fix` 会先迁移正文再替换为窗口链接
@@ -36,10 +41,10 @@
 ## 二、知识库命令
 
 ```
-wiki init [目录] --paths <目录列表> [--intro ...] [--summary ...]   # agent 首次接入
+wiki init [目录] --paths <目录列表> [--mode copy|link] [--intro ...] [--summary ...]   # agent 首次接入
 wiki register [目录]        # 声明块已存在时的 init
-wiki list                   # 已注册项目 + 健康度
-wiki sync [--fix]           # 健康检查；--fix 迁移正文并重建窗口
+wiki list                   # 已注册项目 + 健康度（含存储模式）
+wiki sync [--fix]           # 健康检查；--fix 迁移/增量同步并重建窗口
 wiki unlink <项目名> [--purge]  # 移除注册与窗口（正文默认保留）
 wiki prepare                # 会话初始化 hook：建立/修复项目侧窗口链接
 wiki check                  # 会话退出 hook：幂等同步
@@ -81,8 +86,8 @@ wiki cat <项目/.../文件>
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
-| 会话开始（打开项目） | `wiki prepare` | 已注册项目：建立/修复项目侧窗口链接，必要时新建空知识目录与 `.gitignore` |
-| 会话退出（/quit） | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表；有 wiki-sync 声明块则自动接入 |
+| 会话开始（打开项目） | `wiki prepare` | 已注册项目：建立/修复窗口链接（copy 模式则增量同步），必要时新建空知识目录与 `.gitignore` |
+| 会话退出（/quit） | `wiki check` | 已注册项目：维护窗口、迁移正文/增量同步、同步注册表；有 wiki-sync 声明块则自动接入 |
 
 两者 stdout 均恒空（hook 对 stdout 做严格 JSON 校验），日志走 stderr，失败不阻塞会话；未注册项目完全无感。
 
@@ -122,4 +127,4 @@ wiki cat <项目/.../文件>
 **Qwen Code / 其他无 hook 的工具**：`wiki inject` 注入规约，agent 开工前自行跑 `wiki prepare`、收工跑 `wiki check`。
 
 - **wiki 根解析**：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录 > exe 目录兜底。hook 内联示例：`cmd /c "set WIKI_ROOT=D:\vault&& wiki.exe prepare"`。
-- **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把规约引导段注入用户级指令文件（默认 `~/.qwen/QWEN.md`）。
+- **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把规约引导段注入用户级指令文件。目标优先级：`--file` > `config.json` 的 `injectFile` / `WIKI_INJECT_FILE`（各 agent 工具的用户级指令文件路径不同，如 `~/.qwen/QWEN.md`、`~/.claude/CLAUDE.md`，用 `wiki config set injectFile <路径>` 配置）> 缺省 `~/.qwen/QWEN.md`。

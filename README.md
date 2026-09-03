@@ -1,25 +1,66 @@
 # my-wiki
 
-**一个把散落在各项目里的调研笔记统一管起来的命令行工具**——通过目录链接生成全局视图，配合 coding agent 的钩子自动维护，顺带把 Hugo 博客发布里所有机械性的部分自动化。
+**一个把散落在各项目里的调研笔记统一管起来的命令行工具**——知识正文统一落在 wiki 根（git 可同步），项目侧可用窗口链接直写（缺省）或真目录 + 增量拷贝（`--mode copy`）；双 hook 自动维护，顺带把 Hugo 博客发布的机械步骤自动化。
+
+## 核心设计与亮点
+
+```mermaid
+kanban
+  title my-wiki 看板：架构 · 自动化 · 能力 · 同步
+  section 架构
+    arch1[数据面与控制流分离]
+    arch2[方案 C：projects 真文件 + 窗口链接]
+    arch3[集中注册表 index.md]
+  section 自动化
+    auto1[开工 wiki prepare]
+    auto2[收工 wiki check]
+    auto3[Hook 安全：stdout 空 · 不阻塞]
+  section 能力
+    cap1[跨项目 wiki grep]
+    cap2[Obsidian 直接读 projects]
+    cap3[Hugo blog new / publish]
+  section 同步
+    sync1[Git 友好正文同步]
+    sync2[wiki bundle 按需归档]
+    sync3[projectGitignore 防误提交]
+```
+
+**数据流（方案 C）**——agent 写 `项目/wiki/`，正文实际落在知识库：
+
+```mermaid
+flowchart LR
+    A["Agent 写 项目/wiki/"] --> B["窗口链接"]
+    B --> C["projects/ 真文件"]
+    C --> D["Obsidian 校对"]
+    C --> E["git push 知识库"]
+    D --> F["wiki blog publish"]
+```
+
+| 亮点 | 一句话 |
+|---|---|
+| **双 hook** | 开工 `prepare` 链窗口，收工 `check` 维护——agent 无感 |
+| **路径不变** | agent 仍写 `wiki/note.md`，不必知道知识库绝对路径 |
+| **跨项目 grep** | `wiki grep <模式>` 一次搜全部接入项目 |
+| **工具/数据分离** | 开源 CLI + 本地 `WIKI_ROOT`，个人配置不进项目 remote |
 
 ## 为什么需要它
 
 如果你经常让 Claude Code / Codex / Qwen Code 这类 agent 做源码调研和方案分析，大概率会遇到同一个问题：产出物（调研 wiki、issue 分析、踩坑记录）散落在十几个仓库的角落里，格式不一、无人索引、想找的时候不知道在哪。为每个项目 fork 一个 wiki 仓库又太重。
 
-my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里（单一事实源），工具只在统一目录下维护一组目录链接，再用一张本地注册表登记每个项目的位置和介绍。任何时刻 `grep` 一下就能跨项目检索，而各项目仓库保持零改动——不会把你的个人知识配置带上远程。
+my-wiki 的做法：**正文进知识库、项目留窗口**。agent 仍写 `项目/wiki/`，工具把内容存到 `WIKI_ROOT/projects/`（可 git 同步），项目侧只是一条窗口链接；注册表 `index.md` 集中登记，不会把你的个人配置带上项目 remote。任何时刻 `wiki grep` 跨项目检索，换机器 clone 知识库后 `wiki prepare` 重建窗口即可。
 
 ## 适用场景
 
 **适合：**
 
 - 多仓库并行调研，想在一处检索所有笔记的人
-- 用 coding agent 产出文档，希望会话退出时知识目录自动纳入管理的人
+- 用 coding agent 产出文档，希望开工/收工 hook 自动维护知识目录的人
 - 有个人 Hugo 博客，厌倦了手写 front matter 和手动查分类的人
 
 **不适合：**
 
 - 团队共享知识库——注册表是单机本地的，没有多用户同步
-- 需要开箱即用的远程同步——本工具刻意本地优先；要跨机器就用你自己的 git remote（见进阶）
+- 需要开箱即用的远程同步——正文在 `projects/` 里，配 private git remote 即可；也可用 `wiki bundle` 按需归档
 
 ## 依赖
 
@@ -38,7 +79,7 @@ my-wiki 的做法是**不动你的文档**：笔记继续留在各自项目里�
 cmd/wiki/            入口：子命令分发与 usage
 internal/cli/        共享小工具（宽容 flag 解析、字符串/路径助手）
 internal/config/     配置解析：wiki 根定位、config.json、knowledgeDirs、博客仓库
-internal/registry/   核心域：注册表、知识目录链接、init/register/list/sync/check
+internal/registry/   核心域：注册表、方案 C 存储、prepare/check/bundle
 internal/view/       全局查看：ls / tree / grep / cat
 internal/blog/       博客流水线：front matter、发布记录、new/publish
 internal/guide/      规约引导段注入（wiki inject）
@@ -111,11 +152,11 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 }
 ```
 
-**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 开工前跑 `wiki prepare`、收工跑 `wiki check`：
+**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 开工前跑 `wiki prepare`、收工跑 `wiki check`。不同工具的用户级指令文件路径不同，用 `wiki config set injectFile <路径>` 配置目标（或每次 `--file` 显式指定）：
 
 ```bash
-wiki inject --file ~/.qwen/QWEN.md
-wiki inject --file ~/.codex/AGENTS.md
+wiki config set injectFile ~/.qwen/QWEN.md   # 一次性配置目标文件
+wiki inject                                   # 注入（之后 wiki inject 即可原位更新）
 ```
 
 `wiki inject` 是标记锚定的：无标记则追加、有则原位替换、内容一致则跳过，重复执行安全。
@@ -124,12 +165,12 @@ wiki inject --file ~/.codex/AGENTS.md
 
 ```bash
 # 知识库
-wiki init <项目> [--paths wiki,issues]            # 首次接入；迁移正文并建窗口链接
+wiki init <项目> [--paths wiki,issues] [--mode copy]  # 首次接入；缺省链接模式，--mode copy 用拷贝模式
 wiki init <项目> --intro "..." --summary "..."     # 事后补充/更新元数据
-wiki list                                       # 项目健康度一览
-wiki sync [--fix]                               # 健康检查；--fix 迁移并重建窗口
+wiki list                                       # 项目健康度一览（含存储模式）
+wiki sync [--fix]                               # 健康检查；--fix 迁移/拷贝同步并重建窗口
 wiki unlink <项目> [--purge]                     # 移除注册与窗口（正文默认保留）
-wiki bundle [--archive zip|tgz]                 # 按需克隆目录树/压缩归档
+wiki bundle [--archive zip|tgz]                 # 按需克隆目录树/压缩归档（两种模式通用）
 
 # 检索（路径规格：项目/链接/相对路径）
 wiki ls / wiki tree <项目> / wiki grep <模式> / wiki cat <路径>
@@ -142,6 +183,20 @@ wiki blog list / wiki blog new ... / wiki blog publish <文件名>
 
 - 知识目录用专用名（默认 `wiki/`、`issues/`，可配置），**不要**接入上游项目的官方 `docs/`；克隆的上游项目若自带同名目录，先删掉或整理合并——专用名归个人知识
 - 每个接入目录需要一个 `README.md` 索引其中的文档（工具会持续提醒缺失的 agent 补上）
+
+### 两种存储模式
+
+接入时用 `--mode` 选择（或 `wiki config set defaultMode copy` 设默认），`wiki list` 可见每个项目的模式：
+
+| | **link 模式**（缺省） | **copy 模式**（`--mode copy`） |
+|---|---|---|
+| 项目侧 | 窗口链接 → 知识库 | 真目录（归项目 git 管） |
+| 知识库侧 | 唯一正本 | 增量合并拷贝 |
+| 同步方向 | 无需同步（同一份文件） | 项目 → 知识库，mtime 新者胜，**永不删文件** |
+| 项目 `.gitignore` | 写入知识目录条目 | 不写（正文随项目仓提交） |
+| Obsidian 校对修改 | 直接生效 | 保留（不会被项目侧覆盖） |
+
+**怎么选**：项目仓是自己的、希望知识随仓库走、或环境不便建符号链接 → copy；想避免两份拷贝、知识只归知识库管 → link（缺省）。两模式不支持的切换：已注册项目保留原模式，换模式需 `wiki unlink` 后重新 `init`。copy 模式的代价要知道：项目侧删除的文件会残留在知识库（不删文件是有意设计），且两侧各有一份拷贝。
 
 ## 博客发布（可选）
 
@@ -173,7 +228,9 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 | `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 用） |
 | `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录 |
 | `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名 |
-| `projectGitignore` | `WIKI_PROJECT_GITIGNORE` | `true` | 是否在项目仓创建/追加知识目录 `.gitignore` |
+| `projectGitignore` | `WIKI_PROJECT_GITIGNORE` | `true` | 是否在项目仓创建/追加知识目录 `.gitignore`（仅 link 模式） |
+| `defaultMode` | `WIKI_DEFAULT_MODE` | `link` | 新项目接入的存储模式：`link` / `copy` |
+| `injectFile` | `WIKI_INJECT_FILE` | `~/.qwen/QWEN.md` | `wiki inject` 的目标指令文件（各 agent 工具路径不同） |
 | — | `WIKI_ROOT` | 见解析顺序 | wiki 数据根目录 |
 
 完整的 agent 规约与命令契约见 [AGENTS.md](AGENTS.md)。

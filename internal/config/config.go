@@ -62,6 +62,8 @@ type wikiConfig struct {
 	HugoBin          string   `json:"hugoBin,omitempty"`          // hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
 	HugoSite         string   `json:"hugoSite,omitempty"`         // Hugo 站点目录（相对 blogRepo，缺省 pandawo）
 	ProjectGitignore *bool    `json:"projectGitignore,omitempty"` // 是否在项目仓维护知识目录 gitignore；缺省 true
+	DefaultMode      string   `json:"defaultMode,omitempty"`      // 新项目接入的存储模式：link（缺省）或 copy
+	InjectFile       string   `json:"injectFile,omitempty"`       // wiki inject 的目标指令文件（不同 agent 工具的用户级指令文件路径不同）
 }
 
 func ConfigPath(root string) string { return filepath.Join(root, "config.json") }
@@ -152,6 +154,36 @@ func ProjectGitignore(root string) bool {
 	return true
 }
 
+// DefaultMode 返回新项目接入的默认存储模式。
+// 优先级：环境变量 WIKI_DEFAULT_MODE > config.json defaultMode > link。
+// 合法值由调用方（registry）校验，这里原样返回。
+func DefaultMode() string {
+	if v := os.Getenv("WIKI_DEFAULT_MODE"); v != "" {
+		return v
+	}
+	if cfg := LoadWikiConfig(WikiRoot()); cfg.DefaultMode != "" {
+		return cfg.DefaultMode
+	}
+	return "link"
+}
+
+// InjectFile 返回 wiki inject 的目标指令文件（不同 agent 工具的用户级
+// 指令文件路径不同，如 ~/.qwen/QWEN.md、~/.claude/CLAUDE.md）。
+// 优先级：环境变量 WIKI_INJECT_FILE > config.json injectFile > ~/.qwen/QWEN.md。
+func InjectFile() (string, error) {
+	if v := os.Getenv("WIKI_INJECT_FILE"); v != "" {
+		return v, nil
+	}
+	if cfg := LoadWikiConfig(WikiRoot()); cfg.InjectFile != "" {
+		return cfg.InjectFile, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".qwen", "QWEN.md"), nil
+}
+
 // HugoSiteDir 返回 Hugo 站点目录（hugo new 的执行目录）。
 func HugoSiteDir() string {
 	if v := os.Getenv("WIKI_HUGO_SITE"); v != "" {
@@ -176,12 +208,16 @@ func CmdConfig(args []string) error {
 	root := WikiRoot()
 	switch fs.NArg() {
 	case 0:
-		fmt.Printf("wikiRoot:          %s\nknowledgeDirs:     %s\nblogRepo:          %s\nblogPosts:         %s\nhugoBin:           %s\nhugoSite:          %s\nprojectGitignore:  %v\n",
-			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir(), ProjectGitignore(root))
+		injectFile, injectErr := InjectFile()
+		if injectErr != nil {
+			injectFile = "(无法解析 home 目录)"
+		}
+		fmt.Printf("wikiRoot:          %s\nknowledgeDirs:     %s\nblogRepo:          %s\nblogPosts:         %s\nhugoBin:           %s\nhugoSite:          %s\nprojectGitignore:  %v\ndefaultMode:       %s\ninjectFile:        %s\n",
+			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir(), ProjectGitignore(root), DefaultMode(), injectFile)
 		return nil
 	case 3:
 		if fs.Arg(0) != "set" {
-			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore> <值>")
+			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
 		}
 		key, val := fs.Arg(1), fs.Arg(2)
 		cfg := LoadWikiConfig(root)
@@ -214,8 +250,19 @@ func CmdConfig(args []string) error {
 				return err
 			}
 			cfg.ProjectGitignore = &b
+		case "defaultMode":
+			if val != "link" && val != "copy" {
+				return errors.New("defaultMode 只能是 link（窗口链接）或 copy（项目侧真目录 + 知识库增量拷贝）")
+			}
+			cfg.DefaultMode = val
+		case "injectFile":
+			abs, err := filepath.Abs(val)
+			if err != nil {
+				return err
+			}
+			cfg.InjectFile = abs
 		default:
-			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite, projectGitignore）", key)
+			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite, projectGitignore, defaultMode, injectFile）", key)
 		}
 		if err := cfg.save(root); err != nil {
 			return err
@@ -223,6 +270,6 @@ func CmdConfig(args []string) error {
 		fmt.Printf("已设置 %s（写入 %s）\n", key, ConfigPath(root))
 		return nil
 	default:
-		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore> <值>")
+		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
 	}
 }

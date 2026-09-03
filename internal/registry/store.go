@@ -299,7 +299,7 @@ func gitignoreHas(content, entry string) bool {
 	entry = strings.TrimSuffix(entry, "/")
 	want := map[string]bool{
 		entry: true, entry + "/": true,
-		strings.TrimPrefix(entry, "/"):         true,
+		strings.TrimPrefix(entry, "/"):       true,
 		strings.TrimPrefix(entry, "/") + "/": true,
 	}
 	for _, line := range strings.Split(content, "\n") {

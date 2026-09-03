@@ -1,5 +1,7 @@
 {
   "blogRepo": "D:/path/to/your-hugo-repo",
   "knowledgeDirs": ["wiki", "issues"],
-  "projectGitignore": true
+  "projectGitignore": true,
+  "defaultMode": "link",
+  "injectFile": "C:/Users/you/.qwen/QWEN.md"
 }
