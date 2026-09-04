@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/daidaiJ/my-wiki-repo/internal/cli"
 )
@@ -64,7 +63,7 @@ func mergeCopy(src, dst string) (bool, error) {
 			return err
 		}
 		name := d.Name()
-		if name == ".git" || strings.HasSuffix(name, migratingSuffix) || strings.HasSuffix(name, migratedSuffix) {
+		if skipMigrateName(name) {
 			if d.IsDir() || isLink(path) {
 				return fs.SkipDir
 			}

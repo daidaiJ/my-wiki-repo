@@ -2,6 +2,7 @@ package registry
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,4 +181,160 @@ func zipNames(zr *zip.ReadCloser) []string {
 		names = append(names, f.Name)
 	}
 	return names
+}
+
+func TestBothRealDirsIdenticalRecovers(t *testing.T) {
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "false")
+	proj := newTestProject(t, "dup", []string{"wiki"})
+	os.WriteFile(filepath.Join(proj, "wiki", "a.md"), []byte("same\n"), 0o644)
+	store := filepath.Join(wiki, ProjectsRootName, "dup", "wiki")
+	os.MkdirAll(store, 0o755)
+	os.WriteFile(filepath.Join(store, "a.md"), []byte("same\n"), 0o644)
+
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("两侧同内容时应恢复为窗口，而不是报错拒绝")
+	}
+	got, _ := os.ReadFile(filepath.Join(store, "a.md"))
+	if string(got) != "same\n" {
+		t.Errorf("知识库正文被改写: %q", got)
+	}
+}
+
+func TestBothRealDirsMergesProjectExtra(t *testing.T) {
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "false")
+	proj := newTestProject(t, "extra", []string{"wiki"})
+	os.WriteFile(filepath.Join(proj, "wiki", "old.md"), []byte("keep\n"), 0o644)
+	os.WriteFile(filepath.Join(proj, "wiki", "new.md"), []byte("from-proj\n"), 0o644)
+	store := filepath.Join(wiki, ProjectsRootName, "extra", "wiki")
+	os.MkdirAll(store, 0o755)
+	os.WriteFile(filepath.Join(store, "old.md"), []byte("keep\n"), 0o644)
+	os.WriteFile(filepath.Join(store, "obsidian.md"), []byte("from-store\n"), 0o644)
+
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("应合并后换成窗口")
+	}
+	for _, tc := range []struct{ name, want string }{
+		{"old.md", "keep\n"},
+		{"new.md", "from-proj\n"},
+		{"obsidian.md", "from-store\n"},
+	} {
+		got, err := os.ReadFile(filepath.Join(store, tc.name))
+		if err != nil || string(got) != tc.want {
+			t.Errorf("%s = %q %v, want %q", tc.name, got, err, tc.want)
+		}
+	}
+}
+
+func TestBothRealDirsConflictKeepsStore(t *testing.T) {
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "false")
+	proj := newTestProject(t, "conf", []string{"wiki"})
+	os.WriteFile(filepath.Join(proj, "wiki", "a.md"), []byte("project-side\n"), 0o644)
+	store := filepath.Join(wiki, ProjectsRootName, "conf", "wiki")
+	os.MkdirAll(store, 0o755)
+	os.WriteFile(filepath.Join(store, "a.md"), []byte("store-side\n"), 0o644)
+
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(store, "a.md"))
+	if string(got) != "store-side\n" {
+		t.Fatalf("冲突时不得覆盖知识库: %q", got)
+	}
+	side, err := os.ReadFile(filepath.Join(store, "a.md"+conflictSuffix))
+	if err != nil || string(side) != "project-side\n" {
+		t.Fatalf("项目侧冲突副本应另存: %q %v", side, err)
+	}
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("冲突另存后仍应换成窗口")
+	}
+}
+
+func TestRelocateDirFallsBackWhenRenameFails(t *testing.T) {
+	t.Cleanup(func() { renameDir = os.Rename })
+	renameDir = func(string, string) error { return fmt.Errorf("simulated lock") }
+
+	src := filepath.Join(t.TempDir(), "src")
+	os.MkdirAll(filepath.Join(src, "sub"), 0o755)
+	os.WriteFile(filepath.Join(src, "a.md"), []byte("a\n"), 0o644)
+	os.WriteFile(filepath.Join(src, "sub", "b.md"), []byte("b\n"), 0o644)
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	if err := relocateDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(src); !os.IsNotExist(err) {
+		t.Fatalf("源目录应已搬走: %v", err)
+	}
+	for _, rel := range []string{"a.md", filepath.Join("sub", "b.md")} {
+		got, err := os.ReadFile(filepath.Join(dst, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "a\n"
+		if strings.HasSuffix(rel, "b.md") {
+			want = "b\n"
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q", rel, got)
+		}
+	}
+}
+
+func TestMigrateInvertFallbackWhenProjectRenameFails(t *testing.T) {
+	t.Cleanup(func() { renameDir = os.Rename })
+	renameDir = func(old, new string) error {
+		if strings.Contains(old, ProjectsRootName) {
+			return os.Rename(old, new)
+		}
+		if filepath.Base(old) == "wiki" {
+			return fmt.Errorf("simulated lock")
+		}
+		return os.Rename(old, new)
+	}
+
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "false")
+	proj := newTestProject(t, "locked", []string{"wiki"})
+	os.WriteFile(filepath.Join(proj, "wiki", "note.md"), []byte("safe\n"), 0o644)
+
+	if _, err := EnsureRegistered(wiki, proj, &WikiSyncDecl{Paths: []string{"wiki"}}); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(wiki, ProjectsRootName, "locked", "wiki")
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("项目目录改名失败时应走逐项搬走，最终仍能换成窗口")
+	}
+	got, _ := os.ReadFile(filepath.Join(store, "note.md"))
+	if string(got) != "safe\n" {
+		t.Errorf("迁移丢失正文: %q", got)
+	}
+}
+
+func TestRelocateDirRefusesExistingDest(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "src")
+	dst := filepath.Join(t.TempDir(), "dst")
+	os.MkdirAll(src, 0o755)
+	os.MkdirAll(dst, 0o755)
+	os.WriteFile(filepath.Join(src, "a.md"), []byte("src\n"), 0o644)
+	os.WriteFile(filepath.Join(dst, "a.md"), []byte("dst\n"), 0o644)
+	if err := relocateDir(src, dst); err == nil {
+		t.Fatal("目标已存在时应拒绝覆盖")
+	}
+	got, _ := os.ReadFile(filepath.Join(dst, "a.md"))
+	if string(got) != "dst\n" {
+		t.Errorf("目标被覆盖: %q", got)
+	}
+	got, _ = os.ReadFile(filepath.Join(src, "a.md"))
+	if string(got) != "src\n" {
+		t.Errorf("源被删改: %q", got)
+	}
 }
