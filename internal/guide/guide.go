@@ -31,7 +31,7 @@ func guideSection() string {
 	b.WriteString("- 接入项目：`wiki init <项目路径> [--paths wiki,issues]`（首次）；已注册项目开工前 `wiki prepare`、收工 `wiki check`（hook 自动或 agent 手动）\n")
 	b.WriteString("- 全局检索（路径规格：项目/链接/文件）：`wiki ls` / `wiki grep <模式>` / `wiki cat <项目/链接/文件>` / `wiki tree <项目>`\n")
 	b.WriteString("- 发博客：先 `wiki blog list` → `wiki blog new …` → `wiki blog publish <name>`；push 失败不重试\n")
-	b.WriteString("- 方案 C 两种存储模式：link（缺省，知识正文在 `projects/`，项目侧为窗口链接，`projectGitignore` 写 .gitignore）；copy（`wiki init --mode copy`，项目侧真目录归项目 git 管，知识库存增量拷贝）；跨机器备份用 `wiki bundle [--archive zip|tgz]`\n")
+	b.WriteString("- 日常存储是方案 C（正文在 `projects/`，项目侧窗口或 `--mode copy` 真目录）；旧正向链接（方案 A）会被自动反转；跨机器备份用 `wiki bundle`（方案 B，不是日常布局）\n")
 	b.WriteString(guideEndMarker)
 	return b.String()
 }

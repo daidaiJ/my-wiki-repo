@@ -13,7 +13,7 @@ flowchart LR
 
 ## ① Agent 驱动总结
 
-agent 调研/实践后把结论写入项目 `wiki/` 窗口——正文实际落在知识库 `projects/<项目>/wiki/`（方案 C，可 git 同步）。首次 `wiki init` 接入并迁移已有正文；之后双 hook 自动维护：
+agent 调研/实践后把结论写入项目 `wiki/` 窗口——正文实际落在知识库 `projects/<项目>/wiki/`（方案 C 反转存储，可 git 同步）。首次 `wiki init` 接入并迁移已有正文（含旧版方案 A 的正向链接）；之后双 hook 自动维护：
 
 - **会话开始** `wiki prepare`：建立/修复项目侧窗口链接
 - **会话退出** `wiki check`：维护窗口、迁移新正文、同步注册表
@@ -39,6 +39,6 @@ flowchart TD
 
 push 失败不重试——几乎都是网络/代理问题，自动重试只会放大限流。
 
-**知识库 git 同步**：`projects/` 正文 + `index.md` 注册表一起 push 到 private remote；换机器 clone 后 `wiki prepare` 重建项目侧窗口。按需备份可用 `wiki bundle [--archive zip|tgz]`（方案 B）。
+**知识库 git 同步**：`projects/` 正文 + `index.md` 注册表一起 push 到 private remote；换机器 clone 后 `wiki prepare` 重建项目侧窗口。按需备份可用 `wiki bundle [--archive zip|tgz]`（方案 B，从 C 打快照，不是另一种日常布局）。
 
 > 三段产出物：笔记（知识库 `projects/`）→ 校对结论（人脑）→ 已发布文章（博客仓库）。人工关卡放在发布前而不是发布后，是这条流水线最重要的设计决定。

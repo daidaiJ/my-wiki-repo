@@ -6,7 +6,7 @@
 
 hook 驱动的前提是架构分层，整个系统切成两层：
 
-- **数据面**：知识数据本身。正文落在 wiki 根 `projects/<项目>/`（方案 C，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接；注册表、发布记录、配置在 `WIKI_ROOT`
+- **数据面**：知识数据本身。现行布局是**方案 C（反转存储）**：正文落在 wiki 根 `projects/<项目>/`（真文件，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接。注册表、发布记录、配置在 `WIKI_ROOT`。旧版方案 A（知识库正向链接去聚合项目）已退役，遇到即迁到 C；方案 B 是 `wiki bundle` 按需快照，不是日常布局
 - **控制流**：工具逻辑与 agent 工作流。命令契约、双 hook（prepare/check）、规约注入——可开源、可升级，和数据互不污染
 
 分离的直接体现是 wiki 根解析：
@@ -31,7 +31,18 @@ func WikiRoot() string {
 
 数据面原则：**注册表集中、正文在知识库**。接入信息只存在 wiki 根的 `index.md`；知识正文在 `projects/` 真目录，git 友好。项目侧只留窗口链接，`projectGitignore` 默认 true 会把知识目录写入项目 `.gitignore`，避免误提交。
 
-## 数据面实现：注册表 + 方案 C 存储
+## 数据面实现：三种布局，日常只用 C
+
+字母是演进代号，不是三套并列选项：
+
+| | **A 正向聚合** | **C 反转存储** | **B 按需归档** |
+|---|---|---|---|
+| 状态 | 已退役。`legacyForward`：知识库侧是指向项目真目录的链接 | **现行。** `invertedHealthy`：知识库侧真目录，项目侧窗口链接 | 命令，不是活布局 |
+| 知识正文 | 各项目仓 | `projects/<项目>/` 真文件 | 从 C 克隆出的目录树 / zip / tgz |
+| 触发 | 旧安装残留；`ensureInverted` 发现后 `migrateInvert` | `wiki init` / `prepare` / `check` | 手动 `wiki bundle`，不走 hook |
+| 为何弃 / 留 | git 只能提交链接，Obsidian 也只能跟着链接走 | git 友好、Obsidian 直读真文件、agent 路径不变 | 跨机器拷贝、离线备份；打包时把窗口解析成真文件 |
+
+所以文档和 hook 只围绕 C 写：A 会自动迁走，B 是 C 的出口。C 内部再用 `--mode link|copy` 决定项目侧形态（见下一节），不要把 link/copy 理解成方案 D。
 
 注册表持久化为 `index.md` 顶部的隐藏 JSON 块，其余是渲染视图：
 
@@ -65,13 +76,13 @@ func ensureInverted(store, projPath string, provision bool) (bool, error) {
 }
 ```
 
-Windows 无符号链接权限时自动降级 junction（`makeLink`）。
+Windows 无符号链接权限时自动降级 junction（`makeLink`）。若知识库侧仍是指向项目的正向链接（方案 A），同一条路径会先搬走正文、再换成窗口。
 
-**方案 B（按需备份）**：`wiki bundle` 把 `projects/` 克隆为真实目录树，可选 zip/tgz 归档——不走 hook，供跨机器拷贝或离线备份。窗口链接在 bundle 时被解析成真实文件，所以归档对 link/copy 两种模式通用。
+**方案 B（按需备份）** 不是另一种日常存储：`wiki bundle` 把 `projects/` 克隆为真实目录树，可选 zip/tgz——不走 hook、不改项目侧窗口。归档对 C 的 link/copy 两种模式通用。
 
-## 两种存储模式：窗口链接 vs 增量拷贝
+## 方案 C 内部：窗口链接 vs 增量拷贝
 
-方案 C 的知识正文统一落在 `projects/<项目>/`，但「项目侧怎么看到这些正文」有两种模式，接入时按项目二选一（`wiki init --mode copy|link`，或 `defaultMode` 配置默认）：
+方案 C 的知识正文统一落在 `projects/<项目>/`。**link / copy 是 C 内部的项目侧形态**，接入时按项目二选一（`wiki init --mode copy|link`，或 `defaultMode` 配置默认），不是和 A/B 并列的第三套布局：
 
 | | **link 模式**（缺省） | **copy 模式** |
 |---|---|---|

@@ -4,37 +4,11 @@
 
 ## 核心设计与亮点
 
-```mermaid
-kanban
-  title my-wiki 看板：架构 · 自动化 · 能力 · 同步
-  section 架构
-    arch1[数据面与控制流分离]
-    arch2[方案 C：projects 真文件 + 窗口链接]
-    arch3[集中注册表 index.md]
-  section 自动化
-    auto1[开工 wiki prepare]
-    auto2[收工 wiki check]
-    auto3[Hook 安全：stdout 空 · 不阻塞]
-  section 能力
-    cap1[跨项目 wiki grep]
-    cap2[Obsidian 直接读 projects]
-    cap3[Hugo blog new / publish]
-  section 同步
-    sync1[Git 友好正文同步]
-    sync2[wiki bundle 按需归档]
-    sync3[projectGitignore 防误提交]
-```
+四层：**接入层**（Claude / ZCode / Qwen）经双 hook 打到 **控制面**（开源 `wiki` CLI）；agent 仍写 `项目/wiki/`，正文经窗口落到 **数据面** `WIKI_ROOT/projects/`；出口是 Obsidian 校对、git 同步、Hugo 发布。
 
-**数据流（方案 C）**——agent 写 `项目/wiki/`，正文实际落在知识库：
+![my-wiki 架构：控制流与数据面分离](docs/architecture.svg)
 
-```mermaid
-flowchart LR
-    A["Agent 写 项目/wiki/"] --> B["窗口链接"]
-    B --> C["projects/ 真文件"]
-    C --> D["Obsidian 校对"]
-    C --> E["git push 知识库"]
-    D --> F["wiki blog publish"]
-```
+![看板：架构 · 自动化 · 能力 · 同步](docs/board.svg)
 
 | 亮点 | 一句话 |
 |---|---|
@@ -42,6 +16,22 @@ flowchart LR
 | **路径不变** | agent 仍写 `wiki/note.md`，不必知道知识库绝对路径 |
 | **跨项目 grep** | `wiki grep <模式>` 一次搜全部接入项目 |
 | **工具/数据分离** | 开源 CLI + 本地 `WIKI_ROOT`，个人配置不进项目 remote |
+
+## 正文放哪
+
+现行做法是**反转存储**：知识正文是知识库里的真文件，项目侧只留窗口。另外两种布局不是选项——**正向聚合**已退役（遇到会自动迁走），**按需归档**只是备份出口。
+
+![三种目录布局：正向聚合、反转存储、按需归档](docs/layouts.svg)
+
+| | **正向聚合** | **反转存储** | **按需归档** |
+|---|---|---|---|
+| 角色 | 旧版，已退役 | **现行日常** | 知识库正本的快照出口 |
+| 知识正文 | 留在各项目仓真目录 | 知识库 `projects/` 真文件 | 从知识库正本克隆出真实目录树 / zip |
+| 另一侧 | 知识库用符号链接「聚合」过去 | 项目侧窗口链接（或 copy 真目录） | 不改项目、不走 hook |
+| 问题 / 好处 | git 只能提交链接，换机器即断 | git 可同步，Obsidian 直读真文件 | 跨机器拷贝、离线备份 |
+| 你要选吗 | 不用。`init` / `sync --fix` 遇到正向链接会自动迁成反转存储 | 不用选，`wiki init` 默认就是它 | 需要时手动 `wiki bundle` |
+
+文档只写反转存储，是因为只有它是活布局。正向聚合会自动迁移，不再作为选项；按需归档不是第三种日常模式，只是 `wiki bundle` 从知识库正本打一份可带走的拷贝。下面的 **link / copy** 是反转存储里「项目侧怎么看见正文」的两种形态，不是另一套布局。
 
 ## 为什么需要它
 
@@ -79,7 +69,7 @@ my-wiki 的做法：**正文进知识库、项目留窗口**。agent 仍写 `项
 cmd/wiki/            入口：子命令分发与 usage
 internal/cli/        共享小工具（宽容 flag 解析、字符串/路径助手）
 internal/config/     配置解析：wiki 根定位、config.json、knowledgeDirs、博客仓库
-internal/registry/   核心域：注册表、方案 C 存储、prepare/check/bundle
+internal/registry/   核心域：注册表、反转存储、prepare/check/bundle
 internal/view/       全局查看：ls / tree / grep / cat
 internal/blog/       博客流水线：front matter、发布记录、new/publish
 internal/guide/      规约引导段注入（wiki inject）
@@ -89,6 +79,7 @@ docs/                设计、工作流、Obsidian 接入文档（人读）
 
 ## 文档
 
+- [架构图](docs/architecture.svg) / [看板](docs/board.svg) / [三种布局](docs/layouts.svg) — 四层分层、能力看板、正向聚合 / 反转存储 / 按需归档
 - [设计文档](docs/design.md) — hook 驱动设计、数据面/控制流分离、Obsidian 校对 + Hugo 发布两个出口
 - [知识工作流](docs/workflow.md) — agent 总结 → Obsidian 校对 → Hugo 发布 三段流水线
 - [Obsidian 仓库接入](docs/obsidian.md) — 先建仓库 / 迁移两条路线 SOP
@@ -112,7 +103,7 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 ## 接入你的 Agent（双 hook）
 
-方案 C 推荐注册 **两个 hook**，与 `wiki check` 相同的安全契约（stdout 恒空、日志走 stderr、失败不阻塞）：
+推荐注册 **两个 hook**，与 `wiki check` 相同的安全契约（stdout 恒空、日志走 stderr、失败不阻塞）：
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
@@ -170,7 +161,7 @@ wiki init <项目> --intro "..." --summary "..."     # 事后补充/更新元数
 wiki list                                       # 项目健康度一览（含存储模式）
 wiki sync [--fix]                               # 健康检查；--fix 迁移/拷贝同步并重建窗口
 wiki unlink <项目> [--purge]                     # 移除注册与窗口（正文默认保留）
-wiki bundle [--archive zip|tgz]                 # 按需克隆目录树/压缩归档（两种模式通用）
+wiki bundle [--archive zip|tgz]                 # 按需归档：从知识库正本克隆/压缩
 
 # 检索（路径规格：项目/链接/相对路径）
 wiki ls / wiki tree <项目> / wiki grep <模式> / wiki cat <路径>
@@ -184,9 +175,9 @@ wiki blog list / wiki blog new ... / wiki blog publish <文件名>
 - 知识目录用专用名（默认 `wiki/`、`issues/`，可配置），**不要**接入上游项目的官方 `docs/`；克隆的上游项目若自带同名目录，先删掉或整理合并——专用名归个人知识
 - 每个接入目录需要一个 `README.md` 索引其中的文档（工具会持续提醒缺失的 agent 补上）
 
-### 两种存储模式
+### 项目侧怎么看见正文：link 还是 copy
 
-接入时用 `--mode` 选择（或 `wiki config set defaultMode copy` 设默认），`wiki list` 可见每个项目的模式：
+这是反转存储里的二选一，**不是**另一种目录布局。接入时用 `--mode` 选择（或 `wiki config set defaultMode copy` 设默认），`wiki list` 可见每个项目的模式：
 
 | | **link 模式**（缺省） | **copy 模式**（`--mode copy`） |
 |---|---|---|

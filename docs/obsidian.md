@@ -81,4 +81,4 @@ WIKI_ROOT=/path/to/vault wiki check
 └── .gitignore                ← wiki 维护的知识目录 ignore 条目
 ```
 
-> 两条路线殊途同归：Obsidian 仓库根 = wiki 根，一个目录两用。方案 C 下 Obsidian 直接读 `projects/` 真文件，比旧版符号链接聚合更简单、git 更友好。
+> 两条路线殊途同归：Obsidian 仓库根 = wiki 根，一个目录两用。现行方案 C 下 Obsidian 直接读 `projects/` 真文件；旧版方案 A 是知识库用符号链接去聚合各项目，git 不友好，`init` / `sync --fix` 会把这种正向链接反转成 C。

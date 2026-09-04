@@ -1,7 +1,7 @@
 # my-wiki 规约（Agent 必读）
 
 本仓库是跨项目知识库的统一入口 + Hugo 博客发布工具，CLI 二进制为 `wiki`（本仓库 `go build` 产物）。
-`projects/` 下是各项目知识正文（方案 C，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接。`index.md` 是工具生成的项目索引（数据源在顶部隐藏 JSON 块，**不要手改**）。
+现行存储是**方案 C（反转）**：`projects/` 下是各项目知识正文（真文件，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接。旧版方案 A（知识库正向链接聚合项目）遇到即迁到 C；方案 B 是 `wiki bundle` 按需归档，不是日常布局。`index.md` 是工具生成的项目索引（数据源在顶部隐藏 JSON 块，**不要手改**）。
 
 ## 三条相互独立的流程（互不阻塞）
 
@@ -24,7 +24,7 @@
 
 知识库可同时作为 Obsidian 仓库根：`projects/` 下是真文件，Obsidian 直接索引（接入见 `docs/obsidian.md`）。沉淀成博客前，先提示用户在 Obsidian 校对。
 
-## 一、接入声明（集中式注册表 + 方案 C 存储）
+## 一、接入声明（集中式注册表 + 方案 C 反转存储）
 
 接入信息（paths/intro/summary/mode）**只存在 wiki 根的本地注册表 `index.md`**。`wiki init` 写注册表、按模式建立存储布局，并维护项目侧窗口。`projectGitignore` 默认 true，会在项目仓创建/追加 `.gitignore` 条目（仅 link 模式）。
 
@@ -82,7 +82,7 @@ wiki cat <项目/.../文件>
 
 ## 六、会话 hook 与跨工具规约注入
 
-**双 hook（方案 C 推荐同时注册）：**
+**双 hook（方案 C 日常布局推荐同时注册）：**
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
