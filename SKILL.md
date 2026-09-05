@@ -19,7 +19,7 @@ wiki config set blogRepo <Hugo 仓库绝对路径>
 #    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
 wiki config set hugoBin <hugo 可执行文件路径>
 # 4. 单 hook：会话退出 wiki check（维护窗口；未注册项目已有知识目录时自动反转）；wiki prepare 仅手动修复用
-#    ZCode Start/Stop 或 Claude SessionStart/SessionEnd —— 详见工具仓库 README / AGENTS.md
+#    ZCode Stop 或 Claude SessionEnd —— 详见工具仓库 README / AGENTS.md
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
 wiki inject             # 标记锚定：追加/原位替换/幂等
 # 6. 健康自检：

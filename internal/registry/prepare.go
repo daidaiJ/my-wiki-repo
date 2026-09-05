@@ -8,13 +8,11 @@ import (
 	"github.com/daidaiJ/my-wiki-repo/internal/config"
 )
 
-// CmdPrepare 是会话初始化 hook 的入口（wiki prepare），在 agent 打开项目时调用：
+// CmdPrepare 是 wiki prepare 的入口（可选手动修复，不是 hook）：
 //
-//  1. 当前项目已注册 → 幂等创建/修复项目侧窗口链接（方案 C），必要时新建空知识目录
-//  2. 未注册 → 无任何动作（自动反转在会话退出的 check 触发，避免会话开始时
-//     主动创建目录的时机过早）
+//  1. 当前项目已注册 → 幂等创建/修复项目侧窗口链接（方案 C，如换机 clone 后重建窗口）
+//  2. 未注册 → 无任何动作（自动反转在会话退出的 check 触发，绝不预建空目录）
 //
-// 与 wiki check 对称：prepare 负责「开工前把窗口链好」，check 负责「收工后维护状态」。
 // hook 契约：stdout 恒空、日志走 stderr、内部错误不改变退出码。
 func CmdPrepare(args []string) error {
 	return prepareLogic(config.WikiRoot(), projectDirFromEnv())

@@ -1,6 +1,6 @@
 # my-wiki
 
-**一个把散落在各项目里的调研笔记统一管起来的命令行工具**——知识正文统一落在 wiki 根（git 可同步），项目侧可用窗口链接直写（缺省）或真目录 + 增量拷贝（`--mode copy`）；双 hook 自动维护，顺带把 Hugo 博客发布的机械步骤自动化。
+**一个把散落在各项目里的调研笔记统一管起来的命令行工具**——知识正文统一落在 wiki 根（git 可同步），项目侧可用窗口链接直写（缺省）或真目录 + 增量拷贝（`--mode copy`）；收工 hook 自动维护，顺带把 Hugo 博客发布的机械步骤自动化。
 
 ## 核心设计与亮点
 
@@ -107,7 +107,7 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
-| 会话退出（唯一 hook） | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录 → 自动反转（agent 写入后才触发，不预建空目录） |
+| 会话退出（唯一 hook） | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录 → 自动接入（agent 写入后才触发，不预建空目录）。**行为策略跟随 `defaultMode`**：`link`（缺省）= 反转——正文迁入知识库、原位换成窗口链接；`copy` = 简单拷贝——项目侧保留真目录，hook 只做项目→知识库的增量合并拷贝 |
 
 生效范围由 `hookMode` 控制：`forbiddenList`（缺省）下所有目录默认生效、`forbiddenPaths` 禁止名单（含任意深度子孙目录）跳过；`whitelist` 下仅 `includePaths` 白名单子孙目录生效。跳过时 stderr 输出原因，详见 AGENTS.md「hook 生效范围」。
 
@@ -203,7 +203,7 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 
 **工具与数据分离。** 默认数据（注册表 `index.md`、发布记录 `blog.json`、配置 `config.json`、知识正文 `projects/`）就放在本仓库克隆目录；不想混在工具仓库里的话，把数据挪到别处并设置 `WIKI_ROOT` 指向它。
 
-**用 git 管理你自己的知识。** wiki 根（Obsidian vault）加上 private remote 即可同步 `index.md`、`projects/` 正文、`blog.json`。换机器 clone 后注册 **Start/Stop** hook（`wiki prepare` + `wiki check`）重建项目侧窗口链接。`bundle/` 与 `*.zip`/`*.tar.gz` 归档输出已 gitignore。工具从不自动 push。
+**用 git 管理你自己的知识。** wiki 根（Obsidian vault）加上 private remote 即可同步 `index.md`、`projects/` 正文、`blog.json`。换机器 clone 后注册收工 hook（`wiki check`，见上节）即可；`wiki prepare` 可手动重建窗口链接。`bundle/` 与 `*.zip`/`*.tar.gz` 归档输出已 gitignore。工具从不自动 push。
 
 **配置项。** 优先级：环境变量 > `config.json`（wiki 根下，`wiki config set <键> <值>`）> 默认值。
 
@@ -214,6 +214,9 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 | `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 用） |
 | `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录 |
 | `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名 |
+| `hookMode` | `WIKI_HOOK_MODE` | `forbiddenList` | hook 生效范围：`forbiddenList` 全目录生效（禁止名单排除）/ `whitelist` 仅白名单生效 |
+| `forbiddenPaths` | `WIKI_FORBIDDEN_PATHS` | 空 | forbiddenList 模式的禁止名单（逗号分隔；条目自身及任意深度子孙目录均跳过） |
+| `includePaths` | `WIKI_INCLUDE_PATHS` | 空 | whitelist 模式的生效白名单（逗号分隔；仅其子孙目录生效，为空则全不生效） |
 | `projectGitignore` | `WIKI_PROJECT_GITIGNORE` | `true` | 是否在项目仓创建/追加知识目录 `.gitignore`（仅 link 模式） |
 | `defaultMode` | `WIKI_DEFAULT_MODE` | `link` | 新项目接入的存储模式：`link` / `copy` |
 | `injectFile` | `WIKI_INJECT_FILE` | `~/.qwen/QWEN.md` | `wiki inject` 的目标指令文件（各 agent 工具路径不同） |

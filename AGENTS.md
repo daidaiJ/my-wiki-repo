@@ -130,5 +130,5 @@ wiki cat <项目/.../文件>
 
 **Qwen Code / 其他无 hook 的工具**：`wiki inject` 注入规约，agent 收工时自行跑 `wiki check`（唯一必需的触发点）。
 
-- **wiki 根解析**：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录 > exe 目录兜底。hook 内联示例：`cmd /c "set WIKI_ROOT=D:\vault&& wiki.exe prepare"`。
+- **wiki 根解析**：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录 > exe 目录兜底。hook 内联示例：`cmd /c "set WIKI_ROOT=D:\vault&& wiki.exe check"`。
 - **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把规约引导段注入用户级指令文件。目标优先级：`--file` > `config.json` 的 `injectFile` / `WIKI_INJECT_FILE`（各 agent 工具的用户级指令文件路径不同，如 `~/.qwen/QWEN.md`、`~/.claude/CLAUDE.md`，用 `wiki config set injectFile <路径>` 配置）> 缺省 `~/.qwen/QWEN.md`。
