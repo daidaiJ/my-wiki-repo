@@ -28,7 +28,7 @@ func guideSection() string {
 	b.WriteString(guideStartMarker + "\n")
 	b.WriteString("## wiki 知识库与博客发布（wiki CLI）\n\n")
 	b.WriteString("跨项目知识库与 Hugo 博客发布工具，二进制 `wiki`，完整规约见 wiki 根目录的 `AGENTS.md`（即 wiki 可执行文件所在目录，`wiki config` 可查 wikiRoot）。\n\n")
-	b.WriteString("- 接入项目：`wiki init <项目路径> [--paths wiki,issues]`（首次）；已注册项目开工前 `wiki prepare`、收工 `wiki check`（hook 自动或 agent 手动）\n")
+	b.WriteString("- 写入知识：agent 直接写项目里的 `wiki/`、`issues/` 真目录；会话退出 hook `wiki check` 自动反转为知识库窗口链接（无目录或已是链接则跳过，绝不预建空目录）；显式声明 paths/模式或补元数据用 `wiki init`\n")
 	b.WriteString("- 全局检索（路径规格：项目/链接/文件）：`wiki ls` / `wiki grep <模式>` / `wiki cat <项目/链接/文件>` / `wiki tree <项目>`\n")
 	b.WriteString("- 发博客：先 `wiki blog list` → `wiki blog new …` → `wiki blog publish <name>`；push 失败不重试\n")
 	b.WriteString("- 日常存储是方案 C（正文在 `projects/`，项目侧窗口或 `--mode copy` 真目录）；旧正向链接（方案 A）会被自动反转；跨机器备份用 `wiki bundle`（方案 B，不是日常布局）\n")
