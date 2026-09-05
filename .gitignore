@@ -7,3 +7,6 @@ graphify-out/
 bundle/
 *.zip
 *.tar.gz
+
+.codegraph/
+.gtmp/
