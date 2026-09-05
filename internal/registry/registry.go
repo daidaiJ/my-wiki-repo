@@ -252,7 +252,7 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 	}
 	res := &EnsureResult{}
 	res.Entry = ProjectEntry{
-		Name:    badNameChars.ReplaceAllString(filepath.Base(abs), "_"),
+		Name:    entryNameFor(abs),
 		Root:    abs,
 		Intro:   decl.Intro,
 		Summary: decl.Summary,
@@ -356,6 +356,11 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 	}
 	res.ReadmeWarnings = readmeWarnings(res.Entry)
 	return res, nil
+}
+
+// entryNameFor 由项目根目录推导注册名（basename，非法字符替换为下划线）。
+func entryNameFor(abs string) string {
+	return badNameChars.ReplaceAllString(filepath.Base(abs), "_")
 }
 
 func findEntry(reg *Registry, name string) (ProjectEntry, bool) {

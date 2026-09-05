@@ -7,7 +7,7 @@
 
 | 流程 | 触发方 | 机制 |
 |---|---|---|
-| ① 初始化 | **全自动**（会话开始 hook） | 打开项目时执行 `wiki prepare`：已注册项目幂等建立/修复窗口链接，必要时新建空知识目录 |
+| ① 修复（可选） | agent，**任意时间** | `wiki prepare`：已注册项目幂等建立/修复窗口链接，不创建新接入（自动反转全部在 check 触发） |
 | ② 同步 | **全自动**（会话退出 hook） | 会话退出（/quit）时执行 `wiki check`：维护窗口链接、迁移正文、同步注册表 |
 | ③ 元数据 | agent，**任意时间** | `wiki init --intro/--summary` 更新项目介绍与摘要 |
 | ④ 发布 | agent，主动 | `wiki blog new` → `wiki blog publish` |
@@ -46,7 +46,7 @@ wiki register [目录]        # 声明块已存在时的 init
 wiki list                   # 已注册项目 + 健康度（含存储模式）
 wiki sync [--fix]           # 健康检查；--fix 迁移/增量同步并重建窗口
 wiki unlink <项目名> [--purge]  # 移除注册与窗口（正文默认保留）
-wiki prepare                # 会话初始化 hook：建立/修复项目侧窗口链接
+wiki prepare                # 可选：建立/修复已注册项目的窗口链接（不创建新目录）
 wiki check                  # 会话退出 hook：幂等同步
 wiki bundle [--dir <目录>] [--archive zip|tgz]   # 按需克隆/压缩归档（方案 B）
 ```
@@ -82,14 +82,25 @@ wiki cat <项目/.../文件>
 
 ## 六、会话 hook 与跨工具规约注入
 
-**双 hook（方案 C 日常布局推荐同时注册）：**
+**单 hook（推荐）：只注册会话退出的 `wiki check`，它覆盖全部维护**——已注册项目维护窗口/迁移正文/同步注册表；未注册项目若已有知识目录则自动反转（迁入知识库 + 原位换成窗口链接，agent 写入后才触发，绝不预建空目录）。`wiki prepare` 降级为可选手动命令：仅对已注册项目建立/修复窗口。
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
-| 会话开始（打开项目） | `wiki prepare` | 已注册项目：建立/修复窗口链接（copy 模式则增量同步），必要时新建空知识目录与 `.gitignore` |
-| 会话退出（/quit） | `wiki check` | 已注册项目：维护窗口、迁移正文/增量同步、同步注册表；有 wiki-sync 声明块则自动接入 |
+| 会话退出（/quit，唯一 hook） | `wiki check` | 已注册项目：维护窗口、迁移正文/增量同步、同步注册表；有 wiki-sync 声明块则自动接入；未注册且已有知识目录 → 自动反转（同名注册项冲突时拒绝并提示） |
+| 任意时刻（可选，手动） | `wiki prepare` | 已注册项目：建立/修复窗口链接（copy 模式则增量同步），不创建新接入 |
 
-两者 stdout 均恒空（hook 对 stdout 做严格 JSON 校验），日志走 stderr，失败不阻塞会话；未注册项目完全无感。
+两者 stdout 均恒空（hook 对 stdout 做严格 JSON 校验），日志走 stderr，失败不阻塞会话。
+
+**hook 生效范围**（`hookMode` + 名单，prepare/check 共用）：
+
+| 配置 | 值 | 语义 |
+|---|---|---|
+| `hookMode` | `forbiddenList`（缺省） | 除 `forbiddenPaths` 禁止名单外全部生效；命中名单（条目自身或其任意深度子/孙目录）跳过 |
+| | `whitelist` | 仅 `includePaths` 白名单条目之下的子孙目录生效，其余全跳过 |
+| `forbiddenPaths` | 逗号分隔路径 | 仅 forbiddenList 模式读取；条目支持 `~` 前缀，相对路径按 wiki 根解析 |
+| `includePaths` | 逗号分隔路径 | 仅 whitelist 模式读取；解析规则同上；为空时全不生效 |
+
+跳过时向 stderr 输出一行原因（如 `命中 forbiddenPaths`），不影响退出码。环境变量 `WIKI_HOOK_MODE` / `WIKI_FORBIDDEN_PATHS` / `WIKI_INCLUDE_PATHS` 优先级高于 config.json。
 
 **ZCode**（`~/.zcode/cli/config.json`）：
 
@@ -98,9 +109,6 @@ wiki cat <项目/.../文件>
   "hooks": {
     "enabled": true,
     "events": {
-      "Start": [
-        { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["prepare"], "timeoutMs": 8000 } ] }
-      ],
       "Stop": [
         { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["check"], "timeoutMs": 8000 } ] }
       ]
@@ -114,9 +122,6 @@ wiki cat <项目/.../文件>
 ```json
 {
   "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki prepare" } ] }
-    ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki check" } ] }
     ]
@@ -124,7 +129,7 @@ wiki cat <项目/.../文件>
 }
 ```
 
-**Qwen Code / 其他无 hook 的工具**：`wiki inject` 注入规约，agent 开工前自行跑 `wiki prepare`、收工跑 `wiki check`。
+**Qwen Code / 其他无 hook 的工具**：`wiki inject` 注入规约，agent 收工时自行跑 `wiki check`（唯一必需的触发点）。
 
 - **wiki 根解析**：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录 > exe 目录兜底。hook 内联示例：`cmd /c "set WIKI_ROOT=D:\vault&& wiki.exe prepare"`。
 - **跨工具注入**：`wiki inject [--file <指令文件>] [--remove]` 把规约引导段注入用户级指令文件。目标优先级：`--file` > `config.json` 的 `injectFile` / `WIKI_INJECT_FILE`（各 agent 工具的用户级指令文件路径不同，如 `~/.qwen/QWEN.md`、`~/.claude/CLAUDE.md`，用 `wiki config set injectFile <路径>` 配置）> 缺省 `~/.qwen/QWEN.md`。

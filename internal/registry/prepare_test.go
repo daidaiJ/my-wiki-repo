@@ -46,15 +46,37 @@ func TestPrepareCreatesWindowForRegisteredProject(t *testing.T) {
 	}
 }
 
-func TestPrepareSilentWhenUnregistered(t *testing.T) {
+func TestPrepareNoopWhenUnregistered(t *testing.T) {
 	wiki := newTestWiki(t)
+	t.Setenv("WIKI_ROOT", wiki)
 	proj := filepath.Join(t.TempDir(), "unknown")
 	os.MkdirAll(proj, 0o755)
 	if err := prepareLogic(wiki, proj); err != nil {
 		t.Fatal(err)
 	}
+	if isLink(filepath.Join(proj, "wiki")) || cliLexistsTest(proj, "wiki") {
+		t.Error("未注册项目 prepare 应无动作，不创建任何目录")
+	}
+}
+
+func TestPrepareSkipsForbiddenPath(t *testing.T) {
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_ROOT", wiki)
+	base := t.TempDir()
+	proj := filepath.Join(base, "skipped")
+	os.MkdirAll(proj, 0o755)
+	if err := saveRegistry(wiki, &Registry{Projects: []ProjectEntry{
+		{Name: "skipped", Root: proj, Paths: []string{"wiki"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("WIKI_FORBIDDEN_PATHS", base)
+	if err := prepareLogic(wiki, proj); err != nil {
+		t.Fatal(err)
+	}
 	if isLink(filepath.Join(proj, "wiki")) {
-		t.Error("未注册项目 prepare 应静默，不建链接")
+		t.Error("命中 forbiddenPaths 的已注册项目应跳过，不建窗口")
 	}
 }
 
@@ -75,4 +97,9 @@ func TestInitProvisionsEmptyKnowledgeDirs(t *testing.T) {
 	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
 		t.Fatal("init 应对空路径执行 provision")
 	}
+}
+
+func cliLexistsTest(dir, name string) bool {
+	_, err := os.Lstat(filepath.Join(dir, name))
+	return err == nil
 }

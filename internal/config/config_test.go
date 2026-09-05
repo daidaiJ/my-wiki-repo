@@ -109,6 +109,73 @@ func TestHugoConfig(t *testing.T) {
 	}
 }
 
+func TestHookScope(t *testing.T) {
+	wiki := t.TempDir()
+	t.Setenv("WIKI_ROOT", wiki)
+	base := t.TempDir()
+	proj := filepath.Join(base, "team", "app")
+
+	// 默认 forbiddenList 模式：未命中禁止名单即生效
+	t.Setenv("WIKI_HOOK_MODE", "")
+	t.Setenv("WIKI_FORBIDDEN_PATHS", "")
+	if ok, reason := HookApplies(wiki, proj); !ok || reason != "" {
+		t.Errorf("forbiddenList 模式默认应生效，got ok=%v reason=%q", ok, reason)
+	}
+	// 祖先命中禁止名单：任意深度子孙全跳过
+	t.Setenv("WIKI_FORBIDDEN_PATHS", base)
+	if ok, reason := HookApplies(wiki, proj); ok || !strings.Contains(reason, "forbiddenPaths") {
+		t.Errorf("禁止名单子孙应跳过，got ok=%v reason=%q", ok, reason)
+	}
+	if ok, _ := HookApplies(wiki, base); ok {
+		t.Error("禁止名单条目自身应跳过")
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if ok, _ := HookApplies(wiki, other); !ok {
+		t.Error("禁止名单外目录应生效")
+	}
+
+	// whitelist 模式：仅 includePaths 子孙生效；未配置白名单时全不生效
+	t.Setenv("WIKI_HOOK_MODE", "whitelist")
+	t.Setenv("WIKI_FORBIDDEN_PATHS", "")
+	t.Setenv("WIKI_INCLUDE_PATHS", filepath.Join(base, "team"))
+	if ok, _ := HookApplies(wiki, proj); !ok {
+		t.Error("whitelist 命中的子孙应生效")
+	}
+	if ok, reason := HookApplies(wiki, base); ok || reason == "" {
+		t.Errorf("whitelist 未命中应跳过且给出原因，got ok=%v reason=%q", ok, reason)
+	}
+	t.Setenv("WIKI_INCLUDE_PATHS", "")
+	if ok, reason := HookApplies(wiki, proj); ok || !strings.Contains(reason, "includePaths") {
+		t.Errorf("whitelist 未配置白名单应全不生效，got ok=%v reason=%q", ok, reason)
+	}
+
+	// config.json 生效；环境变量覆盖 config.json
+	cfg := &wikiConfig{HookMode: "forbiddenList", ForbiddenPaths: []string{proj}}
+	if err := cfg.save(wiki); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WIKI_HOOK_MODE", "")
+	t.Setenv("WIKI_FORBIDDEN_PATHS", "")
+	if ok, _ := HookApplies(wiki, filepath.Join(proj, "sub")); ok {
+		t.Error("config.json 禁止名单应生效")
+	}
+	if HookMode(wiki) != "forbiddenlist" {
+		t.Errorf("config hookMode 应为 forbiddenlist，got %q", HookMode(wiki))
+	}
+	t.Setenv("WIKI_HOOK_MODE", "whitelist")
+	if HookMode(wiki) != "whitelist" {
+		t.Error("环境变量应覆盖 config hookMode")
+	}
+
+	// 相对路径条目按 wiki 根解析
+	rel := &wikiConfig{HookMode: "forbiddenList", ForbiddenPaths: []string{"excluded-tree"}}
+	if err := rel.save(wiki); err != nil {
+		t.Fatal(err)
+	}
+	if got := ForbiddenPaths(wiki); len(got) != 1 || got[0] != filepath.Join(wiki, "excluded-tree") {
+		t.Errorf("相对禁止路径应按 wiki 根解析，got %v", got)
+	}
+}
 func TestResolveWikiRootByMarker(t *testing.T) {
 	// 含 index.md 标记的目录被认定为 wiki 根
 	marked := t.TempDir()

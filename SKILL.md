@@ -18,7 +18,7 @@ wiki config            # 检查 wikiRoot / knowledgeDirs / blogRepo 是否符合
 wiki config set blogRepo <Hugo 仓库绝对路径>
 #    blog new 需要 hugo（按主题 archetype 生成模板）；不在 PATH 时：
 wiki config set hugoBin <hugo 可执行文件路径>
-# 4. 双 hook：会话开始 wiki prepare（建窗口链接）、退出 wiki check（维护同步）
+# 4. 单 hook：会话退出 wiki check（维护窗口；未注册项目已有知识目录时自动反转）；wiki prepare 仅手动修复用
 #    ZCode Start/Stop 或 Claude SessionStart/SessionEnd —— 详见工具仓库 README / AGENTS.md
 # 5. 把规约引导注入其他 agent 工具（如 qwen code）：
 wiki inject             # 标记锚定：追加/原位替换/幂等
@@ -28,11 +28,11 @@ wiki list && wiki sync
 
 ## 二、知识库日常操作（高频）
 
-**接入项目**（首次 `wiki init`，之后 hook 自动维护窗口）：
+**接入项目**（会话退出 hook 对已有知识目录自动反转并补注册表；`wiki init` 用于显式声明 paths/模式与补 intro/summary 元数据；生效范围见 hookMode/forbiddenPaths/includePaths）：
 
 ```bash
 wiki init <项目路径> --paths wiki,issues    # 首次接入；可预建空目录
-wiki prepare                                 # 开工前（hook 或手动）：已注册项目建/修窗口链接
+wiki prepare                                 # 可选手动：修复已注册项目的窗口链接（不创建新接入）
 ```
 
 要点：声明只存本地注册表；知识正文在 `projects/`（可 git），项目侧 `wiki/` 等为窗口链接；`projectGitignore` 默认写入项目 `.gitignore`；每个接入目录须有 `README.md` 索引。
@@ -48,7 +48,7 @@ wiki tree <项目> --depth 2
 
 **维护**：`wiki list`（健康度）/ `wiki sync [--fix]`（修链接）/ `wiki unlink <项目>`。
 
-会话退出时自动完成：窗口链接维护、正文迁移、注册表同步——**无需手动做**（开工前 `wiki prepare` 同样自动）。
+会话退出时自动完成：窗口链接维护、正文迁移、未注册项目的按需自动反转、注册表同步——**无需手动做**。
 
 ## 三、发布博客（可选；仅当用户明确要发布时）
 

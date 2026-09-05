@@ -3,5 +3,8 @@
   "knowledgeDirs": ["wiki", "issues"],
   "projectGitignore": true,
   "defaultMode": "link",
-  "injectFile": "C:/Users/you/.qwen/QWEN.md"
+  "injectFile": "C:/Users/you/.qwen/QWEN.md",
+  "hookMode": "forbiddenList",
+  "forbiddenPaths": ["~/archive", "D:/tmp/sandbox"],
+  "includePaths": []
 }

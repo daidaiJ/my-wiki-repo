@@ -28,8 +28,8 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
   wiki list                   列出已注册项目及健康度
   wiki sync [--fix]           健康检查；--fix 先迁移正文再替换项目侧知识目录
   wiki unlink <项目名> [--purge]  移除注册与窗口链接（正文默认保留；--purge 删除）
-  wiki check                  会话退出 hook 入口：自动同步（一般无需手动跑）
-  wiki prepare                会话初始化 hook 入口：为已注册项目建立/修复窗口链接
+  wiki check                  会话退出 hook 入口：自动同步；未注册项目若已有知识目录则自动反转（迁入知识库+原位建窗口链接）
+  wiki prepare                会话初始化 hook 入口：为已注册项目建立/修复窗口链接（不创建新目录）
   wiki bundle [--dir <目录>] [--archive zip|tgz] [--name <文件名>]
                               按需克隆知识目录树，可额外打压缩归档（不走 hook）
 
@@ -51,11 +51,14 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
   wiki config set hugoBin <路径>            hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
   wiki config set hugoSite <路径>           Hugo 站点目录（相对 blogRepo，缺省 pandawo）
   wiki config set knowledgeDirs <逗号列表>  知识目录类型名（默认 wiki,issues）
+  wiki config set hookMode <forbiddenList|whitelist>  hook 生效范围：forbiddenList（缺省，forbiddenPaths 禁止名单排除）或 whitelist（仅 includePaths 子孙目录生效）
+  wiki config set forbiddenPaths <逗号列表> forbiddenList 模式禁止名单：其任意深度子/孙目录跳过 hook
+  wiki config set includePaths <逗号列表>   whitelist 模式生效白名单：仅其任意深度子/孙目录生效
   wiki config set projectGitignore <true|false>  是否在项目仓创建/追加知识目录 gitignore（默认 true）
   wiki inject [--file <指令文件>] [--remove]
                               把规约引导段注入用户级指令文件（默认 ~/.qwen/QWEN.md）
 
-环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_KNOWLEDGE_DIRS / WIKI_BLOG_REPO / WIKI_BLOG_POSTS / WIKI_HUGO_BIN / WIKI_HUGO_SITE / WIKI_PROJECT_GITIGNORE
+环境变量（优先级高于 config.json）: WIKI_ROOT / WIKI_KNOWLEDGE_DIRS / WIKI_BLOG_REPO / WIKI_BLOG_POSTS / WIKI_HUGO_BIN / WIKI_HUGO_SITE / WIKI_PROJECT_GITIGNORE / WIKI_HOOK_MODE / WIKI_FORBIDDEN_PATHS / WIKI_INCLUDE_PATHS
 wiki 根解析：WIKI_ROOT → wiki 可执行文件所在目录（含 index.md 标记）→ 当前目录（含标记）→ 可执行文件目录兜底
 `
 

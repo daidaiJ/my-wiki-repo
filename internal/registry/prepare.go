@@ -11,7 +11,8 @@ import (
 // CmdPrepare 是会话初始化 hook 的入口（wiki prepare），在 agent 打开项目时调用：
 //
 //  1. 当前项目已注册 → 幂等创建/修复项目侧窗口链接（方案 C），必要时新建空知识目录
-//  2. 未注册 → 静默退出，不打扰会话
+//  2. 未注册 → 无任何动作（自动反转在会话退出的 check 触发，避免会话开始时
+//     主动创建目录的时机过早）
 //
 // 与 wiki check 对称：prepare 负责「开工前把窗口链好」，check 负责「收工后维护状态」。
 // hook 契约：stdout 恒空、日志走 stderr、内部错误不改变退出码。
@@ -24,13 +25,17 @@ func prepareLogic(root, proj string) error {
 	if cli.UnderOrEqual(proj, root) {
 		return nil
 	}
+	if ok, reason := config.HookApplies(root, proj); !ok {
+		fmt.Fprintf(os.Stderr, "wiki prepare: 跳过 %s（%s）\n", proj, reason)
+		return nil
+	}
 	reg, err := LoadRegistry(root)
 	if err != nil {
 		return nil
 	}
 	entry, ok := findEntryByRoot(reg, proj)
 	if !ok {
-		return nil // 未注册：静默
+		return nil // 未注册：无动作（会话退出时 check 按需自动反转）
 	}
 	return prepareEntry(root, entry)
 }

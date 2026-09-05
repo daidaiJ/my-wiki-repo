@@ -64,6 +64,9 @@ type wikiConfig struct {
 	ProjectGitignore *bool    `json:"projectGitignore,omitempty"` // 是否在项目仓维护知识目录 gitignore；缺省 true
 	DefaultMode      string   `json:"defaultMode,omitempty"`      // 新项目接入的存储模式：link（缺省）或 copy
 	InjectFile       string   `json:"injectFile,omitempty"`       // wiki inject 的目标指令文件（不同 agent 工具的用户级指令文件路径不同）
+	HookMode         string   `json:"hookMode,omitempty"`         // prepare/check 生效范围：forbiddenList（缺省，全目录生效）或 whitelist（仅 includePaths 子孙目录生效）
+	ForbiddenPaths   []string `json:"forbiddenPaths,omitempty"`   // forbiddenList 模式的禁止名单：其任意深度的子/孙目录跳过 hook；缺省空（不禁止）
+	IncludePaths     []string `json:"includePaths,omitempty"`     // whitelist 模式的生效白名单：仅其任意深度的子/孙目录生效；缺省空（全不生效）
 }
 
 func ConfigPath(root string) string { return filepath.Join(root, "config.json") }
@@ -154,6 +157,105 @@ func ProjectGitignore(root string) bool {
 	return true
 }
 
+// HookMode 返回 prepare/check 的生效范围模式。
+// 优先级：环境变量 WIKI_HOOK_MODE > config.json hookMode > forbiddenList。
+// forbiddenList：除 forbiddenPaths 禁止名单外全部生效；whitelist：仅 includePaths 白名单的子孙目录生效。
+// 非法值按缺省 forbiddenList 处理。
+func HookMode(root string) string {
+	if v := os.Getenv("WIKI_HOOK_MODE"); v != "" {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	if cfg := LoadWikiConfig(root); cfg.HookMode != "" {
+		return strings.ToLower(strings.TrimSpace(cfg.HookMode))
+	}
+	return "forbiddenlist"
+}
+
+// ForbiddenPaths 返回 forbiddenList 模式的禁止路径名单（已规范化为绝对路径）。
+// 优先级：环境变量 WIKI_FORBIDDEN_PATHS > config.json forbiddenPaths > 空。
+func ForbiddenPaths(root string) []string {
+	var raw []string
+	if v := os.Getenv("WIKI_FORBIDDEN_PATHS"); v != "" {
+		raw = cli.SplitCSV(v)
+	} else if cfg := LoadWikiConfig(root); len(cfg.ForbiddenPaths) > 0 {
+		raw = cfg.ForbiddenPaths
+	}
+	out := make([]string, 0, len(raw))
+	for _, p := range raw {
+		out = append(out, normalizePattern(p, root))
+	}
+	return out
+}
+
+// IncludePaths 返回 whitelist 模式的生效路径白名单（已规范化为绝对路径）。
+// 优先级：环境变量 WIKI_INCLUDE_PATHS > config.json includePaths > 空。
+func IncludePaths(root string) []string {
+	var raw []string
+	if v := os.Getenv("WIKI_INCLUDE_PATHS"); v != "" {
+		raw = cli.SplitCSV(v)
+	} else if cfg := LoadWikiConfig(root); len(cfg.IncludePaths) > 0 {
+		raw = cfg.IncludePaths
+	}
+	out := make([]string, 0, len(raw))
+	for _, p := range raw {
+		out = append(out, normalizePattern(p, root))
+	}
+	return out
+}
+
+// HookApplies 判断 hook（prepare/check）是否作用于项目目录：
+//
+//   - forbiddenList 模式（缺省）：默认生效，命中 forbiddenPaths 禁止名单（等于条目
+//     或其任意深度子孙）则跳过；
+//   - whitelist 模式：默认不生效，仅当位于 includePaths 某条目之下（任意深度）才生效。
+//
+// 第二个返回值是跳过原因（用于 stderr 诊断，生效时为空）。
+func HookApplies(root, proj string) (bool, string) {
+	switch HookMode(root) {
+	case "whitelist":
+		patterns := IncludePaths(root)
+		for _, pattern := range patterns {
+			if cli.UnderOrEqual(proj, pattern) {
+				return true, ""
+			}
+		}
+		if len(patterns) == 0 {
+			return false, "whitelist 模式但未配置 includePaths"
+		}
+		return false, "未命中 includePaths（whitelist 模式）"
+	default: // forbiddenList
+		for _, pattern := range ForbiddenPaths(root) {
+			if cli.UnderOrEqual(proj, pattern) {
+				return false, "命中 forbiddenPaths"
+			}
+		}
+		return true, ""
+	}
+}
+
+// normalizePattern 把排除/白名单条目规范化为可比对的绝对路径：~ 展开为用户主目录，
+// 相对路径按 wiki 根解析，其余做 Clean。无法解析 home 时原样返回。
+func normalizePattern(p, root string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return p
+	}
+	if strings.HasPrefix(p, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			if p == "~" {
+				return filepath.Clean(home)
+			}
+			if len(p) > 1 && (p[1] == '/' || p[1] == filepath.Separator) {
+				return filepath.Clean(filepath.Join(home, p[2:]))
+			}
+		}
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(root, p)
+	}
+	return filepath.Clean(p)
+}
+
 // DefaultMode 返回新项目接入的默认存储模式。
 // 优先级：环境变量 WIKI_DEFAULT_MODE > config.json defaultMode > link。
 // 合法值由调用方（registry）校验，这里原样返回。
@@ -212,12 +314,12 @@ func CmdConfig(args []string) error {
 		if injectErr != nil {
 			injectFile = "(无法解析 home 目录)"
 		}
-		fmt.Printf("wikiRoot:          %s\nknowledgeDirs:     %s\nblogRepo:          %s\nblogPosts:         %s\nhugoBin:           %s\nhugoSite:          %s\nprojectGitignore:  %v\ndefaultMode:       %s\ninjectFile:        %s\n",
-			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir(), ProjectGitignore(root), DefaultMode(), injectFile)
+		fmt.Printf("wikiRoot:          %s\nknowledgeDirs:     %s\nblogRepo:          %s\nblogPosts:         %s\nhugoBin:           %s\nhugoSite:          %s\nprojectGitignore:  %v\ndefaultMode:       %s\nhookMode:          %s\nforbiddenPaths:    %s\nincludePaths:      %s\ninjectFile:        %s\n",
+			root, strings.Join(KnowledgeDirs(), ", "), BlogRepo(), BlogPostsDir(), HugoBin(), HugoSiteDir(), ProjectGitignore(root), DefaultMode(), HookMode(root), strings.Join(ForbiddenPaths(root), ", "), strings.Join(IncludePaths(root), ", "), injectFile)
 		return nil
 	case 3:
 		if fs.Arg(0) != "set" {
-			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
+			return errors.New("用法: wiki config set <blogRepo|blogPosts|knowledgeDirs|hookMode|forbiddenPaths|includePaths|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
 		}
 		key, val := fs.Arg(1), fs.Arg(2)
 		cfg := LoadWikiConfig(root)
@@ -244,6 +346,23 @@ func CmdConfig(args []string) error {
 				return errors.New("knowledgeDirs 至少一个目录名（逗号分隔，如 wiki,issues）")
 			}
 			cfg.KnowledgeDirs = dirs
+		case "forbiddenPaths":
+			if strings.TrimSpace(val) == "" {
+				cfg.ForbiddenPaths = nil
+			} else {
+				cfg.ForbiddenPaths = cli.SplitCSV(val)
+			}
+		case "includePaths":
+			if strings.TrimSpace(val) == "" {
+				cfg.IncludePaths = nil
+			} else {
+				cfg.IncludePaths = cli.SplitCSV(val)
+			}
+		case "hookMode":
+			if val != "forbiddenList" && val != "whitelist" {
+				return errors.New("hookMode 只能是 forbiddenList（全目录生效，forbiddenPaths 禁止名单排除）或 whitelist（仅 includePaths 子孙目录生效）")
+			}
+			cfg.HookMode = val
 		case "projectGitignore":
 			b, err := cli.ParseBool(val)
 			if err != nil {
@@ -262,7 +381,7 @@ func CmdConfig(args []string) error {
 			}
 			cfg.InjectFile = abs
 		default:
-			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hugoBin, hugoSite, projectGitignore, defaultMode, injectFile）", key)
+			return fmt.Errorf("未知配置项 %q（可用: blogRepo, blogPosts, knowledgeDirs, hookMode, forbiddenPaths, includePaths, hugoBin, hugoSite, projectGitignore, defaultMode, injectFile）", key)
 		}
 		if err := cfg.save(root); err != nil {
 			return err
@@ -270,6 +389,6 @@ func CmdConfig(args []string) error {
 		fmt.Printf("已设置 %s（写入 %s）\n", key, ConfigPath(root))
 		return nil
 	default:
-		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
+		return errors.New("用法: wiki config [查看] 或 wiki config set <blogRepo|blogPosts|knowledgeDirs|hookMode|forbiddenPaths|includePaths|hugoBin|hugoSite|projectGitignore|defaultMode|injectFile> <值>")
 	}
 }

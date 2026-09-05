@@ -87,17 +87,18 @@ func initByHelper(root, proj, paths, intro, summary string) (*EnsureResult, erro
 
 func TestCheckAutoSyncByRegistry(t *testing.T) {
 	wiki := newTestWiki(t)
+	t.Setenv("WIKI_ROOT", wiki)
 	proj := newTestProject(t, "autoproj", []string{"wiki"})
 	os.WriteFile(filepath.Join(proj, "wiki", "README.md"), []byte("# 索引\n"), 0o644)
 	os.Remove(filepath.Join(proj, "AGENTS.md")) // 集中式：项目里没有声明块
 
-	// 未注册且无声明块 → check 静默无副作用
+	// 未注册且无声明块，但已有知识目录 → check 自动反转并写注册表（agent 写入后才触发）
 	if err := checkLogic(wiki, proj); err != nil {
 		t.Fatal(err)
 	}
 	reg, _ := LoadRegistry(wiki)
-	if _, ok := findEntryByRoot(reg, proj); ok {
-		t.Fatal("未声明时不应注册")
+	if _, ok := findEntryByRoot(reg, proj); !ok {
+		t.Fatal("已有知识目录时 check 应回注册表并自动反转")
 	}
 
 	// 注册后 → check 按注册表自动维护

@@ -4,7 +4,7 @@
 
 ## 核心设计与亮点
 
-四层：**接入层**（Claude / ZCode / Qwen）经双 hook 打到 **控制面**（开源 `wiki` CLI）；agent 仍写 `项目/wiki/`，正文经窗口落到 **数据面** `WIKI_ROOT/projects/`；出口是 Obsidian 校对、git 同步、Hugo 发布。
+四层：**接入层**（Claude / ZCode / Qwen）经收工 hook 打到 **控制面**（开源 `wiki` CLI）；agent 仍写 `项目/wiki/`，正文经窗口落到 **数据面** `WIKI_ROOT/projects/`；出口是 Obsidian 校对、git 同步、Hugo 发布。
 
 ![my-wiki 架构：控制流与数据面分离](docs/architecture.svg)
 
@@ -12,7 +12,7 @@
 
 | 亮点 | 一句话 |
 |---|---|
-| **双 hook** | 开工 `prepare` 链窗口，收工 `check` 维护——agent 无感 |
+| **单 hook** | 收工 `check` 维护窗口、未注册项目按需自动反转——agent 无感 |
 | **路径不变** | agent 仍写 `wiki/note.md`，不必知道知识库绝对路径 |
 | **跨项目 grep** | `wiki grep <模式>` 一次搜全部接入项目 |
 | **工具/数据分离** | 开源 CLI + 本地 `WIKI_ROOT`，个人配置不进项目 remote |
@@ -101,14 +101,15 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 
 就这么多了。接入的项目多了之后，装上 agent 钩子（下一节），之后的一切都是自动的。
 
-## 接入你的 Agent（双 hook）
+## 接入你的 Agent（单 hook）
 
-推荐注册 **两个 hook**，与 `wiki check` 相同的安全契约（stdout 恒空、日志走 stderr、失败不阻塞）：
+只推荐注册 **一个 hook**（会话退出的 `wiki check`），安全契约：stdout 恒空、日志走 stderr、失败不阻塞：
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
-| 会话开始 | `wiki prepare` | 已注册项目：建立/修复项目侧 `wiki/` 等窗口链接 |
-| 会话退出 | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表 |
+| 会话退出（唯一 hook） | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录 → 自动反转（agent 写入后才触发，不预建空目录） |
+
+生效范围由 `hookMode` 控制：`forbiddenList`（缺省）下所有目录默认生效、`forbiddenPaths` 禁止名单（含任意深度子孙目录）跳过；`whitelist` 下仅 `includePaths` 白名单子孙目录生效。跳过时 stderr 输出原因，详见 AGENTS.md「hook 生效范围」。
 
 **ZCode**（`~/.zcode/cli/config.json`）：
 
@@ -117,9 +118,6 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
   "hooks": {
     "enabled": true,
     "events": {
-      "Start": [
-        { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["prepare"], "timeoutMs": 8000 } ] }
-      ],
       "Stop": [
         { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["check"], "timeoutMs": 8000 } ] }
       ]
@@ -133,9 +131,6 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 ```json
 {
   "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki prepare" } ] }
-    ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki check" } ] }
     ]
@@ -143,7 +138,7 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 }
 ```
 
-**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 开工前跑 `wiki prepare`、收工跑 `wiki check`。不同工具的用户级指令文件路径不同，用 `wiki config set injectFile <路径>` 配置目标（或每次 `--file` 显式指定）：
+**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 收工时跑 `wiki check`。不同工具的用户级指令文件路径不同，用 `wiki config set injectFile <路径>` 配置目标（或每次 `--file` 显式指定）：
 
 ```bash
 wiki config set injectFile ~/.qwen/QWEN.md   # 一次性配置目标文件
