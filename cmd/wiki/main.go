@@ -24,12 +24,11 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
 知识库:
   wiki init [目录] [--paths <目录列表>] [--intro ...] [--summary ...]
                               接入项目：声明写本地注册表；正文迁入 projects/，项目侧改为窗口链接
-  wiki register [目录]        低级命令：注册声明块（AGENTS.md opt-in）已存在的项目
   wiki list                   列出已注册项目及健康度
   wiki sync [--fix]           健康检查；--fix 先迁移正文再替换项目侧知识目录
   wiki unlink <项目名> [--purge]  移除注册与窗口链接（正文默认保留；--purge 删除）
   wiki check                  会话退出 hook 入口：自动同步；未注册项目若已有知识目录则自动反转（迁入知识库+原位建窗口链接）
-  wiki prepare                会话初始化 hook 入口：为已注册项目建立/修复窗口链接（不创建新目录）
+  wiki prepare                可选手动：为已注册项目建立/修复窗口链接（不创建新目录；hook 只剩会话退出的 check）
   wiki bundle [--dir <目录>] [--archive zip|tgz] [--name <文件名>]
                               按需克隆知识目录树，可额外打压缩归档（不走 hook）
 
@@ -71,8 +70,6 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		err = registry.CmdInit(os.Args[2:])
-	case "register":
-		err = registry.CmdRegister(os.Args[2:])
 	case "check":
 		err = registry.CmdCheck(os.Args[2:])
 	case "prepare":

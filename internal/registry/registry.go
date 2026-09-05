@@ -397,40 +397,6 @@ func sameEntry(a, b ProjectEntry) bool {
 
 // --- 子命令 ---
 
-// CmdRegister 注册一个声明块已存在的项目（低级命令，一般直接用 CmdInit）。
-func CmdRegister(args []string) error {
-	fs := flag.NewFlagSet("register", flag.ContinueOnError)
-	dir := fs.String("dir", "", "项目根目录（可省略，改用位置参数或当前目录）")
-	if err := cli.ParseWithPositionals(fs, args); err != nil {
-		return err
-	}
-	root := config.WikiRoot()
-	dirArg := "."
-	switch {
-	case fs.NArg() == 1:
-		dirArg = fs.Arg(0)
-	case *dir != "":
-		dirArg = *dir
-	case fs.NArg() > 1:
-		return errors.New("用法: wiki register [目录]")
-	}
-	abs, err := filepath.Abs(dirArg)
-	if err != nil {
-		return err
-	}
-	decl, err := ParseWikiSync(abs)
-	if err != nil {
-		return err
-	}
-	res, err := EnsureRegistered(root, abs, decl)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("已注册项目 %s（%s），接入路径 %d 个，本次修复窗口 %d 个、迁移 %d 个、增量同步 %d 个\n", res.Entry.Name, abs, len(res.Entry.Paths), res.LinksRepaired, res.Migrated, res.Synced)
-	printWarnings(res.ReadmeWarnings)
-	return nil
-}
-
 func printWarnings(ws []string) {
 	for _, w := range ws {
 		fmt.Fprintln(os.Stderr, "⚠ "+w)

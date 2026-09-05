@@ -41,8 +41,7 @@
 ## 二、知识库命令
 
 ```
-wiki init [目录] --paths <目录列表> [--mode copy|link] [--intro ...] [--summary ...]   # agent 首次接入
-wiki register [目录]        # 声明块已存在时的 init
+wiki init [目录] --paths <目录列表> [--mode copy|link] [--intro ...] [--summary ...]   # 显式接入：声明 paths/模式、补 intro/summary
 wiki list                   # 已注册项目 + 健康度（含存储模式）
 wiki sync [--fix]           # 健康检查；--fix 迁移/增量同步并重建窗口
 wiki unlink <项目名> [--purge]  # 移除注册与窗口（正文默认保留）

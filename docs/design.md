@@ -1,13 +1,15 @@
 # 设计文档
 
-> my-wiki 的定位不是"又一个笔记工具"，而是 agent 工作流里的自动同步器。设计围绕双 hook 展开：会话开始跑 `wiki prepare`（建立项目侧窗口链接），会话退出跑 `wiki check`（维护窗口、迁移正文、同步注册表）——幂等、静默、非阻塞。人不需要记得"接入"这件事，agent 也不需要。
+> my-wiki 的定位不是"又一个笔记工具"，而是 agent 工作流里的自动同步器。设计围绕**单 hook** 展开：会话退出跑 `wiki check`，它覆盖全部维护——已注册项目维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录则自动反转（迁入知识库 + 原位建窗口链接）。幂等、静默、非阻塞。人不需要记得"接入"这件事，agent 也不需要。
+
+自动反转放在会话退出而不是会话开始，是时序上的刻意选择：反转的前提是"项目里已有知识目录"——即 agent 在会话中真实写入过。会话开始时什么都还没发生，主动创建目录只会制造空壳；会话退出时按需反转，没有知识目录就完全无感。
 
 ## 核心思想：hook 驱动，自动化优先
 
 hook 驱动的前提是架构分层，整个系统切成两层：
 
 - **数据面**：知识数据本身。现行布局是**方案 C（反转存储）**：正文落在 wiki 根 `projects/<项目>/`（真文件，可进 git）；项目侧 `wiki/`、`issues/` 等为指向知识库的窗口链接。注册表、发布记录、配置在 `WIKI_ROOT`。旧版方案 A（知识库正向链接去聚合项目）已退役，遇到即迁到 C；方案 B 是 `wiki bundle` 按需快照，不是日常布局
-- **控制流**：工具逻辑与 agent 工作流。命令契约、双 hook（prepare/check）、规约注入——可开源、可升级，和数据互不污染
+- **控制流**：工具逻辑与 agent 工作流。命令契约、退出 hook（check）与可选手动修复（prepare）、规约注入——可开源、可升级，和数据互不污染
 
 分离的直接体现是 wiki 根解析：
 
@@ -39,7 +41,7 @@ func WikiRoot() string {
 |---|---|---|---|
 | 状态 | 已退役。`legacyForward`：知识库侧是指向项目真目录的链接 | **现行。** `invertedHealthy`：知识库侧真目录，项目侧窗口链接 | 命令，不是活布局 |
 | 知识正文 | 各项目仓 | `projects/<项目>/` 真文件 | 从 C 克隆出的目录树 / zip / tgz |
-| 触发 | 旧安装残留；`ensureInverted` 发现后 `migrateInvert` | `wiki init` / `prepare` / `check` | 手动 `wiki bundle`，不走 hook |
+| 触发 | 旧安装残留；`ensureInverted` 发现后 `migrateInvert` | `wiki init` / `check`（prepare 仅修复已注册项目） | 手动 `wiki bundle`，不走 hook |
 | 为何弃 / 留 | git 只能提交链接，Obsidian 也只能跟着链接走 | git 友好、Obsidian 直读真文件、agent 路径不变 | 跨机器拷贝、离线备份；打包时把窗口解析成真文件 |
 
 所以文档和 hook 只围绕 C 写：A 会自动迁走，B 是 C 的出口。C 内部再用 `--mode link|copy` 决定项目侧形态（见下一节），不要把 link/copy 理解成方案 D。
@@ -88,7 +90,7 @@ Windows 无符号链接权限时自动降级 junction（`makeLink`）。若知�
 |---|---|---|
 | 项目侧形态 | 窗口链接（symlink/junction）→ 知识库 | 真实目录 |
 | 知识库侧 | 唯一正本，agent 经链接直写 | 项目正文的增量合并拷贝 |
-| 同步机制 | 无需同步（物理上是同一份文件） | prepare/check hook 增量同步：只拷新增/修改，mtime 新者胜，**永不删文件** |
+| 同步机制 | 无需同步（物理上是同一份文件） | check hook 增量同步：只拷新增/修改，mtime 新者胜，**永不删文件** |
 | 知识正文的 git 归属 | 知识库仓（`projectGitignore` 默认把知识目录写进项目 `.gitignore`） | 项目仓（拷贝模式不碰项目 `.gitignore`） |
 | Obsidian 校对修改 | 直接落在正本 | 保留——知识库侧更新的文件不会被项目侧旧版本覆盖 |
 | 符号链接依赖 | 有（Windows 无权限自动降级 junction） | 无 |
@@ -124,19 +126,21 @@ flowchart LR
 
 控制流要回答一个问题：hook 和 agent 怎么和这个工具协作？三个设计贯穿始终。
 
-**双 hook：prepare + check。** 两者共享 hook 安全契约：
+**单 hook：check 一力承担。** 安全契约：
 
 - stdout 恒为空（部分工具会把 stdout 当 JSON 严格校验）
 - 日志全部走 stderr，内部错误不改变退出码
 
 | 命令 | 时机 | 作用 |
 |---|---|---|
-| `wiki prepare` | 会话开始 | 已注册项目：建立/修复项目侧窗口链接，必要时新建空知识目录 |
-| `wiki check` | 会话退出 | 已注册项目：维护窗口、迁移正文、同步注册表；有 wiki-sync 声明块则自动接入 |
+| `wiki check` | 会话退出（唯一 hook） | 已注册项目：维护窗口、迁移正文、同步注册表；有 wiki-sync 声明块则自动接入；未注册且已有知识目录 → 自动反转（写注册表，后续会话按注册表维护） |
+| `wiki prepare` | 任意时刻（可选，手动） | 已注册项目：建立/修复窗口链接，不创建新接入 |
+
+生效范围由 `hookMode` 控制：`forbiddenList`（缺省，`forbiddenPaths` 禁止名单及其任意深度子孙跳过）或 `whitelist`（仅 `includePaths` 白名单子孙目录生效）；跳过时 stderr 输出原因。自动反转拒绝同名注册项冲突（不同根目录同名 basename），避免覆盖显式 init 的声明。
 
 ```go
 // internal/registry/registry.go
-// EnsureRegistered 幂等地接入/同步，init/register/prepare/check 共用
+// EnsureRegistered 幂等地接入/同步，init/prepare/check 共用
 func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, error) {
     // 1. ensureInverted：迁移正文 + 建立项目侧窗口链接
     // 2. 声明收缩时只摘窗口链接，知识库真目录保留
