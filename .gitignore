@@ -7,6 +7,8 @@ graphify-out/
 bundle/
 *.zip
 *.tar.gz
+/projects/
+*.code-workspace
 
 .codegraph/
 .gtmp/
