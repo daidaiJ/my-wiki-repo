@@ -15,7 +15,8 @@ import (
 )
 
 // postsRelDir 是文章目录相对博客仓库根的默认位置（平台无关拼接）。
-var postsRelDir = filepath.Join("pandawo", "content", "post")
+// 缺省假定博客仓库根即 Hugo 站点；多站点布局用 config.json 的 blogPosts/hugoSite 调整。
+var postsRelDir = filepath.Join("content", "post")
 
 // WikiRoot 解析 wiki 数据根目录（开源可移植，无任何硬编码个人路径）：
 //
@@ -60,7 +61,7 @@ type wikiConfig struct {
 	BlogPosts        string   `json:"blogPosts,omitempty"`
 	KnowledgeDirs    []string `json:"knowledgeDirs,omitempty"`
 	HugoBin          string   `json:"hugoBin,omitempty"`          // hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
-	HugoSite         string   `json:"hugoSite,omitempty"`         // Hugo 站点目录（相对 blogRepo，缺省 pandawo）
+	HugoSite         string   `json:"hugoSite,omitempty"`         // Hugo 站点目录（相对 blogRepo，缺省博客仓库根）
 	ProjectGitignore *bool    `json:"projectGitignore,omitempty"` // 是否在项目仓维护知识目录 gitignore；缺省 true
 	DefaultMode      string   `json:"defaultMode,omitempty"`      // 新项目接入的存储模式：link（缺省）或 copy
 	InjectFile       string   `json:"injectFile,omitempty"`       // wiki inject 的目标指令文件（不同 agent 工具的用户级指令文件路径不同）
@@ -291,7 +292,7 @@ func HugoSiteDir() string {
 	if v := os.Getenv("WIKI_HUGO_SITE"); v != "" {
 		return v
 	}
-	site := "pandawo"
+	site := "."
 	if cfg := LoadWikiConfig(WikiRoot()); cfg.HugoSite != "" {
 		site = cfg.HugoSite
 	}

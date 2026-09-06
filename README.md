@@ -220,9 +220,9 @@ push 失败不做重试，原始错误透传出来，人工网络环境下手动
 | config.json 键 | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
 | `blogRepo` | `WIKI_BLOG_REPO` | 无 | Hugo 博客仓库根，用博客功能必配 |
-| `blogPosts` | `WIKI_BLOG_POSTS` | `<blogRepo>/pandawo/content/post` | 文章目录 |
+| `blogPosts` | `WIKI_BLOG_POSTS` | `<blogRepo>/content/post` | 文章目录 |
 | `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 用） |
-| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>/pandawo` | Hugo 站点目录 |
+| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>` | Hugo 站点目录（缺省假定仓库根即站点；站点在子目录时用此项指定） |
 | `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名 |
 | `hookMode` | `WIKI_HOOK_MODE` | `forbiddenList` | hook 生效范围：`forbiddenList` 全目录生效（禁止名单排除）/ `whitelist` 仅白名单生效 |
 | `forbiddenPaths` | `WIKI_FORBIDDEN_PATHS` | 空 | forbiddenList 模式的禁止名单（逗号分隔；条目自身及任意深度子孙目录均跳过） |

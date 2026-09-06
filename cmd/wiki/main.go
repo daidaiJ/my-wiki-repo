@@ -48,7 +48,7 @@ var usage = `wiki — 跨项目知识库 + Hugo 博客发布 CLI (` + version + 
   wiki config set blogRepo <路径>           Hugo 仓库根（用博客功能必配）
   wiki config set blogPosts <路径>          文章目录
   wiki config set hugoBin <路径>            hugo 可执行文件（blog new 用，缺省 PATH 上的 hugo）
-  wiki config set hugoSite <路径>           Hugo 站点目录（相对 blogRepo，缺省 pandawo）
+  wiki config set hugoSite <路径>           Hugo 站点目录（相对 blogRepo，缺省博客仓库根）
   wiki config set knowledgeDirs <逗号列表>  知识目录类型名（默认 wiki,issues）
   wiki config set hookMode <forbiddenList|whitelist>  hook 生效范围：forbiddenList（缺省，forbiddenPaths 禁止名单排除）或 whitelist（仅 includePaths 子孙目录生效）
   wiki config set forbiddenPaths <逗号列表> forbiddenList 模式禁止名单：其任意深度子/孙目录跳过 hook

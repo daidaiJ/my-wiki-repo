@@ -66,12 +66,12 @@ wiki cat <项目/.../文件>
 
 ## 四、博客发布流水线（agent 工作流）
 
-目标仓库默认 `D:\note\daidaiJ.github.io`（文章在 `pandawo/content/post/`），**可用 `wiki config set blogRepo <路径>` 配置**；push 到 main 后 GitHub Actions 自动部署，发布 = push 成功。
+目标仓库无内置默认值，**用 `wiki config set blogRepo <你的 Hugo 仓库绝对路径>` 配置**（文章目录缺省 `<blogRepo>/content/post/`，站点在子目录时用 `hugoSite`/`blogPosts` 指定）；push 到 main 后 GitHub Actions 自动部署，发布 = push 成功。
 
 1. **先查已有分类**：`wiki blog list`（只列 categories/tags 两字段，按使用次数降序）——**优先复用高频类别**，不要新造同义类别（历史上有 ai/AI、go/golang 并存的碎片化）。数据来自懒维护的本地记录 `blog.json`（首次自动扫描引导、之后增量对账、publish 成功即更新）
 2. **写正文**：遵循 `tech-blog` skill 的文风规范
 3. **创建**：`wiki blog new --title --slug --categories --tags --name (--file|--body|--stdin) [--dry-run]`。`hugo new` 按主题 archetype 生成模板（需 hugo，不在 PATH 时 `wiki config set hugoBin`），CLI 只填 title/slug/categories/tags 四字段并拼正文；slug/文件名重复罕见，撞上会在本步直接报错（apply 时校验，先于 hugo new）
-4. **发布**：`wiki blog publish <name>`。**push 失败不重试**：原始 git 错误透传 + 非 0 退出，如实告知用户「文件已本地提交，请在 D:\note\daidaiJ.github.io 手动 git push」
+4. **发布**：`wiki blog publish <name>`。**push 失败不重试**：原始 git 错误透传 + 非 0 退出，如实告知用户「文件已本地提交，请在博客仓库手动 git push」
 
 ## 五、分工与边界
 

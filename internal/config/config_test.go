@@ -74,7 +74,7 @@ func TestHugoConfig(t *testing.T) {
 	t.Setenv("WIKI_HUGO_BIN", "")
 	t.Setenv("WIKI_HUGO_SITE", "")
 
-	// 默认：PATH 上的 hugo，站点相对 blogRepo 的 pandawo
+	// 默认：PATH 上的 hugo，站点即博客仓库根
 	if got := HugoBin(); got != "hugo" {
 		t.Errorf("默认 hugoBin = %q", got)
 	}

@@ -331,7 +331,7 @@ func newBlogEnv(t *testing.T) (wiki, repo, postDir string) {
 	wiki = t.TempDir()
 	t.Setenv("WIKI_ROOT", wiki)
 	repo = t.TempDir()
-	postDir = filepath.Join(repo, "pandawo", "content", "post")
+	postDir = filepath.Join(repo, "content", "post")
 	if err := os.MkdirAll(postDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func newBlogEnv(t *testing.T) (wiki, repo, postDir string) {
 }
 
 func TestCmdBlogNewFullFlow(t *testing.T) {
-	_, _, postDir := newBlogEnv(t)
+	_, repo, postDir := newBlogEnv(t)
 	var calls []string
 	mockHugoNew(t, &calls)
 
@@ -360,7 +360,7 @@ func TestCmdBlogNewFullFlow(t *testing.T) {
 		t.Fatalf("runHugoNew 应恰好调用 1 次: %v", calls)
 	}
 	parts := strings.Split(calls[0], "|")
-	if parts[0] != "hugo" || !strings.HasSuffix(parts[1], "pandawo") || parts[2] != "content/post/new_post.md" {
+	if parts[0] != "hugo" || parts[1] != repo || parts[2] != "content/post/new_post.md" {
 		t.Errorf("hugo new 参数异常: %s", calls[0])
 	}
 	// 落盘内容：四字段已填、主题字段保留、正文在末尾
