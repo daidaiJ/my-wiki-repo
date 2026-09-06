@@ -239,6 +239,7 @@ type EnsureResult struct {
 	Synced          int          // 拷贝模式下本次发生增量同步的知识路径数
 	GitignoreAction string       // created / appended / 空（未写盘）
 	ReadmeWarnings  []string     // 接入目录缺 README 索引
+	VSCodeFiles     []string     // 本次补齐的 projects/.vscode 配置（相对 wiki 根，仅缺失时创建）
 }
 
 // EnsureRegistered 幂等地把项目接入知识库（方案 C）：
@@ -271,6 +272,9 @@ func EnsureRegistered(root, abs string, decl *WikiSyncDecl) (*EnsureResult, erro
 
 	if err := os.MkdirAll(filepath.Join(root, ProjectsRootName, res.Entry.Name), 0o755); err != nil {
 		return nil, err
+	}
+	if res.VSCodeFiles, err = ensureVSCodeWorkspace(root); err != nil {
+		return nil, fmt.Errorf("补齐 VSCode 工作区配置失败: %w", err)
 	}
 
 	taken := map[string]bool{}

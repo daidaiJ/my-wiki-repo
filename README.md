@@ -15,6 +15,7 @@
 | **单 hook** | 收工 `check` 维护窗口、未注册项目按需自动反转——agent 无感 |
 | **路径不变** | agent 仍写 `wiki/note.md`，不必知道知识库绝对路径 |
 | **跨项目 grep** | `wiki grep <模式>` 一次搜全部接入项目 |
+| **VSCode 预览** | `projects/` 自动补齐 `.vscode` 配置，点开 `.md` 直接是渲染视图 |
 | **工具/数据分离** | 开源 CLI + 本地 `WIKI_ROOT`，个人配置不进项目 remote |
 
 ## 正文放哪
@@ -169,6 +170,15 @@ wiki blog list / wiki blog new ... / wiki blog publish <文件名>
 
 - 知识目录用专用名（默认 `wiki/`、`issues/`，可配置），**不要**接入上游项目的官方 `docs/`；克隆的上游项目若自带同名目录，先删掉或整理合并——专用名归个人知识
 - 每个接入目录需要一个 `README.md` 索引其中的文档（工具会持续提醒缺失的 agent 补上）
+
+### 在 VSCode 里阅读：点开 .md 直接进预览
+
+任何接入操作（`wiki init`、收工 hook 的 `wiki check`）都会顺带在知识库 `projects/.vscode/` 下幂等补齐两份配置——仅缺失时创建，改过的内容不会被覆盖：
+
+- `settings.json` — 把 `*.md` 关联到 VSCode 内置 Markdown 预览：点开文件直接是渲染视图，双击预览切回源码；单换行渲染为换行
+- `extensions.json` — 扩展推荐清单（Mermaid 图表渲染、Markdown All in One），换机器打开工作区时 VSCode 会自动提示安装
+
+用 VSCode 打开 `WIKI_ROOT/projects/` 目录即生效，内置预览开箱即用、无需装插件；Obsidian 校对不受影响。
 
 ### 项目侧怎么看见正文：link 还是 copy
 

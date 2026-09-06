@@ -122,6 +122,9 @@ func CmdInit(args []string) error {
 	if res.GitignoreAction != "" {
 		fmt.Printf("  .gitignore: 已%s知识目录条目\n", map[string]string{"created": "创建并写入", "appended": "追加"}[res.GitignoreAction])
 	}
+	if len(res.VSCodeFiles) > 0 {
+		fmt.Printf("  VSCode: 已生成 %s（用 VSCode 打开 projects 目录，点 .md 直接进预览）\n", strings.Join(res.VSCodeFiles, ", "))
+	}
 	printWarnings(res.ReadmeWarnings)
 	return nil
 }

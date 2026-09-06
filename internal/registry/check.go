@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/daidaiJ/my-wiki-repo/internal/cli"
 	"github.com/daidaiJ/my-wiki-repo/internal/config"
@@ -103,6 +104,9 @@ func logSyncResult(res *EnsureResult) {
 	}
 	if res.GitignoreAction != "" {
 		fmt.Fprintf(os.Stderr, "wiki check: 已%s %s 的 .gitignore\n", res.GitignoreAction, res.Entry.Name)
+	}
+	if len(res.VSCodeFiles) > 0 {
+		fmt.Fprintf(os.Stderr, "wiki check: 已补齐 %s\n", strings.Join(res.VSCodeFiles, ", "))
 	}
 	for _, w := range res.ReadmeWarnings {
 		fmt.Fprintln(os.Stderr, "wiki check ⚠ "+w)
