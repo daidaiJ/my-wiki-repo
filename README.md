@@ -6,9 +6,7 @@
 
 四层：**接入层**（Claude / ZCode / Qwen）经收工 hook 打到 **控制面**（开源 `wiki` CLI）；agent 仍写 `项目/wiki/`，正文经窗口落到 **数据面** `WIKI_ROOT/projects/`；出口是 Obsidian 校对、git 同步、Hugo 发布。
 
-![my-wiki 架构：控制流与数据面分离](docs/architecture.svg)
-
-![看板：架构 · 自动化 · 能力 · 同步](docs/board.svg)
+![my-wiki 架构：控制流与数据面分离](docs/architecture.png)
 
 | 亮点 | 一句话 |
 |---|---|
@@ -22,7 +20,7 @@
 
 现行做法是**反转存储**：知识正文是知识库里的真文件，项目侧只留窗口。另外两种布局不是选项——**正向聚合**已退役（遇到会自动迁走），**按需归档**只是备份出口。
 
-![三种目录布局：正向聚合、反转存储、按需归档](docs/layouts.svg)
+![三种目录布局：正向聚合、反转存储、按需归档](docs/layouts.png)
 
 | | **正向聚合** | **反转存储** | **按需归档** |
 |---|---|---|---|
@@ -80,7 +78,7 @@ docs/                设计、工作流、Obsidian 接入文档（人读）
 
 ## 文档
 
-- [架构图](docs/architecture.svg) / [看板](docs/board.svg) / [三种布局](docs/layouts.svg) — 四层分层、能力看板、正向聚合 / 反转存储 / 按需归档
+- [架构图](docs/architecture.png) / [三种布局](docs/layouts.png) / [双 hook](docs/hooks.png) — 四层分层、正向聚合 / 反转存储 / 按需归档、开工/收工生命周期
 - [设计文档](docs/design.md) — hook 驱动设计、数据面/控制流分离、Obsidian 校对 + Hugo 发布两个出口
 - [知识工作流](docs/workflow.md) — agent 总结 → Obsidian 校对 → Hugo 发布 三段流水线
 - [Obsidian 仓库接入](docs/obsidian.md) — 先建仓库 / 迁移两条路线 SOP
@@ -105,6 +103,8 @@ cd my-wiki-repo && go build -o wiki ./cmd/wiki
 ## 接入你的 Agent（单 hook）
 
 只推荐注册 **一个 hook**（会话退出的 `wiki check`），安全契约：stdout 恒空、日志走 stderr、失败不阻塞：
+
+![双 hook：会话开始 prepare，会话中路径不变，会话退出 check](docs/hooks.png)
 
 | 时机 | 命令 | 作用 |
 |---|---|---|
