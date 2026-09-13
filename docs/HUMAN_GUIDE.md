@@ -1,0 +1,181 @@
+> [English](HUMAN_GUIDE.en.md)
+
+# HUMAN_GUIDE — 配置与使用指南（人类阅读版）
+
+本指南面向**人类用户**，讲解 my-wiki 的安装、接入 agent、日常使用与配置。给 AI Agent 看的省 token 版见 [AGENT_GUIDE.md](AGENT_GUIDE.md)。
+
+## 依赖
+
+| 依赖 | 何时需要 | 说明 |
+|---|---|---|
+| Go ≥ 1.25 | 仅自行构建时 | 唯一第三方库是 `gopkg.in/yaml.v3`，产出单二进制；也可以直接从 [Releases](../../releases) 下载对应平台的二进制（免 Go） |
+| git | 仅 `blog publish` | 本地 commit + push |
+| Hugo | 仅 `blog new` | 按主题 archetype 生成 front matter 模板；不在 PATH 时用 `wiki config set hugoBin` 指定 |
+| 符号链接权限 | 无要求 | Linux/macOS 原生支持；Windows 无需管理员权限（自动降级为 junction） |
+
+运行平台：Windows / Linux / macOS。
+
+## 快速开始
+
+```bash
+git clone https://github.com/daidaiJ/my-wiki-repo.git
+cd my-wiki-repo && go build -o wiki ./cmd/wiki
+
+# 接入一个项目（自动发现项目下的 wiki/ 和 issues/ 目录）
+./wiki init /path/to/some-project --intro "一句话介绍"
+
+# 跨项目检索
+./wiki ls                              # 已接入项目
+./wiki grep "controller reconcile"     # 全局内容搜索
+./wiki cat some-project/wiki/xxx.md    # 查看命中的文档
+```
+
+个人数据建议和工具仓库分开：把 `WIKI_ROOT` 指到独立目录（可同时当 Obsidian 仓库根），见下方「工具与数据分离」与 [obsidian.md](obsidian.md)。
+
+## 接入 Agent（单 hook）
+
+只推荐注册 **一个 hook**（会话退出的 `wiki check`），安全契约：stdout 恒空、日志走 stderr、失败不阻塞：
+
+![单 hook：会话中路径不变，会话退出 check 维护窗口并按需反转](hooks.png)
+
+| 时机 | 命令 | 作用 |
+|---|---|---|
+| 会话退出（唯一 hook） | `wiki check` | 已注册项目：维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录 → 自动接入（agent 写入后才触发，不预建空目录）。**行为策略跟随 `defaultMode`**：`link`（缺省）= 反转——正文迁入知识库、原位换成窗口链接；`copy` = 简单拷贝——项目侧保留真目录，hook 只做项目→知识库的增量合并拷贝 |
+
+生效范围由 `hookMode` 控制：`forbiddenList`（缺省）下所有目录默认生效、`forbiddenPaths` 禁止名单（含任意深度子孙目录）跳过；`whitelist` 下仅 `includePaths` 白名单子孙目录生效。跳过时 stderr 输出原因。
+
+**ZCode**（`~/.zcode/cli/config.json`）：
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "Stop": [
+        { "hooks": [ { "type": "process", "command": "/path/to/my-wiki/wiki", "args": ["check"], "timeoutMs": 8000 } ] }
+      ]
+    }
+  }
+}
+```
+
+**Claude Code**（`~/.claude/settings.json`）：
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "/path/to/my-wiki/wiki check" } ] }
+    ]
+  }
+}
+```
+
+**Qwen Code / Codex / 其他不支持钩子的工具**：用 `wiki inject` 注入规约，agent 收工时跑 `wiki check`。不同工具的用户级指令文件路径不同，用 `wiki config set injectFile <路径>` 配置目标（或每次 `--file` 显式指定）：
+
+```bash
+wiki config set injectFile ~/.qwen/QWEN.md   # 一次性配置目标文件
+wiki inject                                   # 注入（之后 wiki inject 即可原位更新）
+```
+
+`wiki inject` 是标记锚定的：无标记则追加、有则原位替换、内容一致则跳过，重复执行安全。
+
+## 日常使用
+
+```bash
+# 知识库
+wiki init <项目> [--paths wiki,issues] [--mode copy]  # 首次接入；缺省链接模式，--mode copy 用拷贝模式
+wiki init <项目> --intro "..." --summary "..."     # 事后补充/更新元数据
+wiki list                                       # 项目健康度一览（含存储模式）
+wiki sync [--fix]                               # 健康检查；--fix 迁移/拷贝同步并重建窗口
+wiki unlink <项目> [--purge]                     # 移除注册与窗口（正文默认保留）
+wiki bundle [--archive zip|tgz]                 # 按需归档：从知识库正本克隆/压缩
+
+# 检索（路径规格：项目/链接/相对路径）
+wiki ls / wiki tree <项目> / wiki grep <模式> / wiki cat <路径>
+
+# 博客（可选功能，见下）
+wiki blog list / wiki blog new ... / wiki blog publish <文件名>
+```
+
+两条规约值得知道：
+
+- 知识目录用专用名（默认 `wiki/`、`issues/`，可配置），**不要**接入上游项目的官方 `docs/`；克隆的上游项目若自带同名目录，先删掉或整理合并——专用名归个人知识
+- 每个接入目录需要一个 `README.md` 索引其中的文档（工具会持续提醒缺失的 agent 补上）
+
+知识工作流（agent 总结 → Obsidian 校对 → Hugo 发布）见 [workflow.md](workflow.md)。
+
+## 在 VSCode 里阅读
+
+任何接入操作（`wiki init`、收工 hook 的 `wiki check`）都会顺带在知识库 `projects/.vscode/` 下幂等补齐两份配置——仅缺失时创建，改过的内容不会被覆盖：
+
+- `settings.json` — 把 `*.md` 关联到 VSCode 内置 Markdown 预览：点开文件直接是渲染视图，双击预览切回源码；单换行渲染为换行
+- `extensions.json` — 扩展推荐清单（Mermaid 图表渲染、Markdown All in One），换机器打开工作区时 VSCode 会自动提示安装
+
+用 VSCode 打开 `WIKI_ROOT/projects/` 目录即生效，内置预览开箱即用、无需装插件；Obsidian 校对不受影响。
+
+## 项目侧怎么看见正文：link 还是 copy
+
+这是反转存储里的二选一，**不是**另一种目录布局。接入时用 `--mode` 选择（或 `wiki config set defaultMode copy` 设默认），`wiki list` 可见每个项目的模式：
+
+| | **link 模式**（缺省） | **copy 模式**（`--mode copy`） |
+|---|---|---|
+| 项目侧 | 窗口链接 → 知识库 | 真目录（归项目 git 管） |
+| 知识库侧 | 唯一正本 | 增量合并拷贝 |
+| 同步方向 | 无需同步（同一份文件） | 项目 → 知识库，mtime 新者胜，**永不删文件** |
+| 项目 `.gitignore` | 写入知识目录条目 | 不写（正文随项目仓提交） |
+| Obsidian 校对修改 | 直接生效 | 保留（不会被项目侧覆盖） |
+
+**怎么选**：项目仓是自己的、希望知识随仓库走、或环境不便建符号链接 → copy；想避免两份拷贝、知识只归知识库管 → link（缺省）。两模式不支持热切换：已注册项目保留原模式，换模式需 `wiki unlink` 后重新 `init`。copy 模式的代价要知道：项目侧删除的文件会残留在知识库（不删文件是有意设计），且两侧各有一份拷贝。
+
+语义细节与实现见 [design.md](design.md)。
+
+## 博客发布（可选）
+
+面向有个人 Hugo 博客的用户。`wiki config set blogRepo <仓库路径>` 后：
+
+```bash
+wiki blog list                      # 已有 categories/tags 及使用频次——新文章优先复用，防止分类碎片化
+wiki blog new \
+  --title "标题" --slug english-kebab \
+  --categories "技术笔记" --tags "go,k8s" \
+  --name my_post --file body.md     # hugo new 按主题 archetype 生成模板，CLI 填四字段+拼正文；--dry-run 预览后自动删除恢复
+wiki blog publish my_post           # git add+commit+push，博客仓库的 CI 负责构建部署
+```
+
+push 失败不做重试，原始错误透传出来，人工网络环境下手动补一次 `git push` 即可（文章已本地提交）。已发布文章的四字段元数据懒维护在本地 `blog.json`。
+
+## 工具与数据分离
+
+默认数据（注册表 `index.md`、发布记录 `blog.json`、配置 `config.json`、知识正文 `projects/`）就放在本仓库克隆目录；不想混在工具仓库里的话，把数据挪到别处并设置 `WIKI_ROOT` 指向它。
+
+wiki 根解析顺序：`WIKI_ROOT` 环境变量 > exe 目录（含 `index.md` 标记）> 当前目录 > exe 目录兜底。hook 内联示例：
+
+```bash
+cmd /c "set WIKI_ROOT=D:\vault&& wiki.exe check"
+```
+
+**用 git 管理知识。** wiki 根（Obsidian vault）加上 private remote 即可同步 `index.md`、`projects/` 正文、`blog.json`。换机器 clone 后注册收工 hook（`wiki check`）即可；`wiki prepare` 可手动重建窗口链接。`bundle/` 与 `*.zip`/`*.tar.gz` 归档输出已 gitignore。工具从不自动 push。
+
+Obsidian 仓库接入 SOP 见 [obsidian.md](obsidian.md)。
+
+## 配置项速查
+
+`wiki config` / `wiki config set` 读写这些项。优先级：环境变量 > `config.json`（wiki 根下）> 默认值。示例见仓库根的 [`config.example.json`](../config.example.json)。
+
+| config.json 键 | 环境变量 | 默认 | 说明 |
+|---|---|---|---|
+| `blogRepo` | `WIKI_BLOG_REPO` | 无 | Hugo 博客仓库根，用博客功能必配 |
+| `blogPosts` | `WIKI_BLOG_POSTS` | `<blogRepo>/content/post` | 文章目录 |
+| `hugoBin` | `WIKI_HUGO_BIN` | `hugo` | hugo 可执行文件（`blog new` 用） |
+| `hugoSite` | `WIKI_HUGO_SITE` | `<blogRepo>` | Hugo 站点目录（缺省假定仓库根即站点；站点在子目录时用此项指定） |
+| `knowledgeDirs` | `WIKI_KNOWLEDGE_DIRS` | `wiki, issues` | 知识目录类型名 |
+| `hookMode` | `WIKI_HOOK_MODE` | `forbiddenList` | hook 生效范围：`forbiddenList` 全目录生效（禁止名单排除）/ `whitelist` 仅白名单生效 |
+| `forbiddenPaths` | `WIKI_FORBIDDEN_PATHS` | 空 | forbiddenList 模式的禁止名单（逗号分隔；条目自身及任意深度子孙目录均跳过） |
+| `includePaths` | `WIKI_INCLUDE_PATHS` | 空 | whitelist 模式的生效白名单（逗号分隔；仅其子孙目录生效，为空则全不生效） |
+| `projectGitignore` | `WIKI_PROJECT_GITIGNORE` | `true` | 是否在项目仓创建/追加知识目录 `.gitignore`（仅 link 模式） |
+| `defaultMode` | `WIKI_DEFAULT_MODE` | `link` | 新项目接入的存储模式：`link` / `copy` |
+| `injectFile` | `WIKI_INJECT_FILE` | `~/.qwen/QWEN.md` | `wiki inject` 的目标指令文件（各 agent 工具路径不同） |
+| — | `WIKI_ROOT` | 见解析顺序 | wiki 数据根目录 |
+
+`defaultMode` 只影响**新接入**项目；已注册项目保留原模式，换模式需 `wiki unlink` 后重新 `init`。

@@ -1,3 +1,5 @@
+> [English](design.en.md)
+
 # 设计文档
 
 > my-wiki 的定位不是"又一个笔记工具"，而是 agent 工作流里的自动同步器。设计围绕**单 hook** 展开：会话退出跑 `wiki check`，它覆盖全部维护——已注册项目维护窗口、迁移正文、同步注册表；未注册项目若已有知识目录则自动反转（迁入知识库 + 原位建窗口链接）。幂等、静默、非阻塞。人不需要记得"接入"这件事，agent 也不需要。
@@ -274,3 +276,17 @@ fmt.Println("categories（按使用次数降序，创建文章时优先复用已
 ```
 
 > 两个出口的分工：Obsidian 管「人看得舒服」，Hugo 管「对外发得出去」。中间夹的人工关卡（校对）是这条流水线最重要的设计决定——agent 负责产出和机械步骤，人负责判断。
+
+## 仓库结构
+
+```
+cmd/wiki/            入口：子命令分发与 usage
+internal/cli/        共享小工具（宽容 flag 解析、字符串/路径助手）
+internal/config/     配置解析：wiki 根定位、config.json、knowledgeDirs、博客仓库
+internal/registry/   核心域：注册表、反转存储、prepare/check/bundle
+internal/view/       全局查看：ls / tree / grep / cat
+internal/blog/       博客流水线：front matter、发布记录、new/publish
+internal/guide/      规约引导段注入（wiki inject）
+AGENTS.md            agent 规约（命令契约与工作流边界）
+docs/                人读文档：HUMAN_GUIDE / AGENT_GUIDE、设计、工作流、Obsidian 接入
+```

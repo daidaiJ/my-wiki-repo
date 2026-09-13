@@ -1,3 +1,5 @@
+> [English](obsidian.en.md)
+
 # Obsidian 仓库接入
 
 > 把 wiki 根接进 Obsidian 当仓库有两条路：先建仓库再配 wiki CLI（推荐），或者顺序反了之后迁移。殊途同归：Obsidian 仓库根 = wiki 根，一个目录两用。
@@ -17,7 +19,7 @@ export WIKI_ROOT=/path/to/vault
 ```
 
 3. `wiki init <项目>` 接入项目——注册表 `index.md`、`config.json`、`projects/` 正文全部落在仓库目录里，Obsidian 里立即可见
-4. 注册 **Start + Stop** hook（`wiki prepare` + `wiki check`），换机器后窗口链接自动重建
+4. 注册会话退出 hook（`wiki check`），换机器后窗口链接自动重建；需要时再手动 `wiki prepare`
 5. 验证：`wiki ls` 项目在册，`obsidian vault=<仓库名> folders` 索引完整
 
 ## 路线二：顺序反了，迁移现有持久化目录
