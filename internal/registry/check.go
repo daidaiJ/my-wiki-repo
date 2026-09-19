@@ -84,9 +84,31 @@ func syncDecl(root, proj string, decl *WikiSyncDecl) error {
 	return nil
 }
 
-// syncEntry 按注册表现有内容幂等维护链接与元数据。
+// expandPaths 返回注册路径 ∪ 项目根当前真实存在的知识目录类型（新目录按
+// knowledgeDirs 配置顺序追加在尾部）。这是白名单语义下的动态吸收：
+// 已注册项目里新出现的 knowledgeDirs 目录（如会话中途新建的 wiki/）自动并入声明，
+// 无需重新 init。注册路径永不收缩——目录暂时缺失也保留，避免误清理。
+func expandPaths(entry ProjectEntry) []string {
+	paths := append([]string{}, entry.Paths...)
+	for _, k := range config.KnowledgeDirs() {
+		if containsStr(paths, k) {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(entry.Root, filepath.FromSlash(k))); err == nil && fi.IsDir() {
+			paths = append(paths, k)
+		}
+	}
+	return paths
+}
+
+// syncEntry 按注册表现有内容幂等维护链接与元数据，并动态吸收新增知识目录。
 func syncEntry(root string, entry ProjectEntry) error {
-	return syncDecl(root, entry.Root, &WikiSyncDecl{Paths: entry.Paths, Intro: entry.Intro, Summary: entry.Summary, Mode: entry.Mode})
+	paths := expandPaths(entry)
+	if len(paths) != len(entry.Paths) {
+		fmt.Fprintf(os.Stderr, "wiki check: 发现 %s 新增知识目录 %s，自动并入\n",
+			entry.Name, strings.Join(paths[len(entry.Paths):], ", "))
+	}
+	return syncDecl(root, entry.Root, &WikiSyncDecl{Paths: paths, Intro: entry.Intro, Summary: entry.Summary, Mode: entry.Mode})
 }
 
 func logSyncResult(res *EnsureResult) {

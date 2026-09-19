@@ -39,8 +39,9 @@ func prepareLogic(root, proj string) error {
 }
 
 func prepareEntry(root string, entry ProjectEntry) error {
+	paths := expandPaths(entry)
 	res, err := EnsureRegistered(root, entry.Root, &WikiSyncDecl{
-		Paths:   entry.Paths,
+		Paths:   paths,
 		Intro:   entry.Intro,
 		Summary: entry.Summary,
 		Mode:    entry.Mode,

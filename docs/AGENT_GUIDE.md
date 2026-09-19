@@ -52,7 +52,7 @@ Windows：symlink，无权限降级 junction。
 
 ## Hook
 
-只注册会话退出 `wiki check`。stdout 空、失败不阻塞。未注册且已有知识目录 → 自动反转（写过后才触发，不预建空目录）。同名注册冲突则拒绝。
+只注册会话退出 `wiki check`。stdout 空、失败不阻塞。已注册项目：新出现的 knowledgeDirs 目录自动并入（先拷正文入库再反转链接，注册路径永不收缩）。未注册且已有知识目录 → 自动反转（写过后才触发，不预建空目录）。同名注册冲突则拒绝。
 
 `hookMode`：`forbiddenList`（缺省，`forbiddenPaths` 及其子孙跳过）/ `whitelist`（仅 `includePaths` 子孙）。env `WIKI_HOOK_MODE` / `WIKI_FORBIDDEN_PATHS` / `WIKI_INCLUDE_PATHS` 优先于 config。
 

@@ -52,7 +52,7 @@ Windows: symlink, junction fallback without permission.
 
 ## Hook
 
-Register session-end `wiki check` only. Empty stdout; failures do not block. Unregistered + existing knowledge dirs → auto-invert (after a write, never empty shells). Same-name registry conflicts are rejected.
+Register session-end `wiki check` only. Empty stdout; failures do not block. Registered projects: newly added knowledge dirs are absorbed automatically (copy body into the vault first, then invert into a window link; registered paths never shrink). Unregistered + existing knowledge dirs → auto-invert (after a write, never empty shells). Same-name registry conflicts are rejected.
 
 `hookMode`: `forbiddenList` (default; skip `forbiddenPaths` and descendants) / `whitelist` (only `includePaths` descendants). Env `WIKI_HOOK_MODE` / `WIKI_FORBIDDEN_PATHS` / `WIKI_INCLUDE_PATHS` override config.
 

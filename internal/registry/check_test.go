@@ -41,6 +41,50 @@ func TestCheckAutoInvertsExistingKnowledgeDirs(t *testing.T) {
 	}
 }
 
+func TestCheckAbsorbsNewKnowledgeDirInRegisteredProject(t *testing.T) {
+	wiki := newTestWiki(t)
+	t.Setenv("WIKI_ROOT", wiki)
+	t.Setenv("WIKI_PROJECT_GITIGNORE", "false")
+	proj := filepath.Join(t.TempDir(), "growing")
+	// 接入时只有 issues/，注册表 paths 即 [issues]
+	if err := os.MkdirAll(filepath.Join(proj, "issues"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkLogic(wiki, proj); err != nil {
+		t.Fatal(err)
+	}
+	// 会话中途新建 wiki/ 并写入正文
+	if err := os.MkdirAll(filepath.Join(proj, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "wiki", "note.md"), []byte("late-note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkLogic(wiki, proj); err != nil {
+		t.Fatal(err)
+	}
+	// 新目录先拷正文入库，再原位反转成窗口链接（白名单动态吸收语义）
+	store := filepath.Join(wiki, ProjectsRootName, "growing", "wiki")
+	if got, err := os.ReadFile(filepath.Join(store, "note.md")); err != nil || string(got) != "late-note\n" {
+		t.Fatalf("新增知识目录的正文应迁入知识库: %q %v", got, err)
+	}
+	if !invertedHealthy(store, filepath.Join(proj, "wiki")) {
+		t.Fatal("新增知识目录应原位反转成窗口链接")
+	}
+	reg, err := LoadRegistry(wiki)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := findEntryByRoot(reg, proj)
+	if !ok {
+		t.Fatal("注册项不应丢失")
+	}
+	if len(entry.Paths) != 2 || !containsStr(entry.Paths, "issues") || !containsStr(entry.Paths, "wiki") {
+		t.Errorf("注册表 paths 应动态并入 wiki: %v", entry.Paths)
+	}
+}
+
 func TestCheckNoopWhenNoKnowledgeDirs(t *testing.T) {
 	wiki := newTestWiki(t)
 	t.Setenv("WIKI_ROOT", wiki)
