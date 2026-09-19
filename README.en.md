@@ -38,7 +38,7 @@ Docs are Chinese by default; the same-name `.en.md` files are the English versio
 
 | Point | One line |
 |---|---|
-| **Single hook** | Session-end `check` maintains windows and auto-inverts unregistered projects — agents never notice |
+| **Single hook** | Session-end `check` maintains windows, absorbs newly added knowledge dirs, and auto-inverts unregistered projects — agents never notice |
 | **Stable paths** | Agents still write `wiki/note.md`; they never need the wiki absolute path |
 | **Cross-project grep** | `wiki grep <pattern>` searches every enrolled project |
 | **VSCode preview** | `projects/` gets `.vscode` config so `.md` opens as rendered preview |

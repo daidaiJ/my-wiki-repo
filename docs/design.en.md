@@ -2,7 +2,7 @@
 
 # Design
 
-> my-wiki is not “yet another notes app”. It is an auto-synchronizer inside an agent workflow. Design centers on a **single hook**: session-end `wiki check` covers all maintenance — windows for registered projects, note migration, registry sync; unregistered projects that already have knowledge dirs are auto-inverted (move into the wiki + window in place). Idempotent, silent, non-blocking. Neither humans nor agents need to remember “enroll”.
+> my-wiki is not “yet another notes app”. It is an auto-synchronizer inside an agent workflow. Design centers on a **single hook**: session-end `wiki check` covers all maintenance — windows for registered projects, note migration, absorbing newly added knowledge dirs, registry sync; unregistered projects that already have knowledge dirs are auto-inverted (move into the wiki + window in place). Idempotent, silent, non-blocking. Neither humans nor agents need to remember “enroll”.
 
 Auto-invert runs at session end, not session start, on purpose: invert requires “the project already has a knowledge dir” — i.e. the agent actually wrote during the session. At session start nothing has happened yet; creating dirs then only makes empty shells. Invert on demand at exit; no knowledge dir means a complete no-op.
 
@@ -135,8 +135,8 @@ Control flow answers: how do hooks and agents work with this tool? Three designs
 
 | Command | When | Role |
 |---|---|---|
-| `wiki check` | Session end (the only hook) | Registered projects: maintain windows, migrate notes, sync registry; wiki-sync declaration blocks auto-enroll; unregistered + existing knowledge dirs → auto-enroll (write registry; later sessions follow it). Behavior follows `defaultMode`: `link` = invert (move + window), `copy` = simple copy (project keeps real dirs, incremental merge) |
-| `wiki prepare` | Anytime (optional, manual) | Registered projects: create/repair windows; no new enrollments |
+| `wiki check` | Session end (the only hook) | Registered projects: maintain windows, migrate notes, absorb newly added knowledge dirs (a knowledgeDirs type appearing in the project root joins the declaration automatically — body copied into the vault first, then inverted in place; registered paths never shrink), sync registry; wiki-sync declaration blocks auto-enroll; unregistered + existing knowledge dirs → auto-enroll (write registry; later sessions follow it). Behavior follows `defaultMode`: `link` = invert (move + window), `copy` = simple copy (project keeps real dirs, incremental merge) |
+| `wiki prepare` | Anytime (optional, manual) | Registered projects: create/repair windows and absorb newly added knowledge dirs; no new enrollments |
 
 Scope is `hookMode`: `forbiddenList` (default; skip `forbiddenPaths` and any descendant) or `whitelist` (only `includePaths` descendants); skips log a reason to stderr. Auto-invert rejects same-name registry conflicts (same basename, different roots) so it never overwrites an explicit `init`.
 
